@@ -46,9 +46,16 @@ else
 fi
 
 HEAD_SHA=$(git --git-dir="$MIRROR" rev-parse "$UPSTREAM_BRANCH")
-echo "$HEAD_SHA" > "$WORK_DIR/.upstream-head"
+echo "$HEAD_SHA" > "$WORK_DIR/.upstream-head"   # legacy marker, kept for compat
+
+# Normalised state: identity is the branch-tip commit SHA.
+set +e
+fetch_state_write "upstream" "$HEAD_SHA"
+STATE_RC=$?
+set -e
 
 ok "upstream mirror at: $MIRROR"
 echo "   HEAD of $UPSTREAM_BRANCH: ${HEAD_SHA:0:12}"
 git --git-dir="$MIRROR" log -1 --format='   %h  %s%n   author: %an, %ar' "$UPSTREAM_BRANCH" \
     | sed 's/^/   /'
+exit "$STATE_RC"

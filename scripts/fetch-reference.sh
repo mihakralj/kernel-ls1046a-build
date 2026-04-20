@@ -51,12 +51,19 @@ done
 [[ -n "$SHA" ]] || err "could not resolve ref '$REF'"
 
 git -C "$REF_DIR" -c advice.detachedHead=false checkout --quiet "$SHA"
-echo "$SHA" > "${WORK_DIR}/.reference-sha"
+echo "$SHA" > "${WORK_DIR}/.reference-sha"   # legacy marker, kept for compat
 
 # Sanity
 for f in patches/kernel/003-ask-kernel-hooks.patch patches/kernel/sdk-sources config/ask.config; do
     [[ -e "$REF_DIR/$f" ]] || warn "expected reference file missing: $f"
 done
 
+# Normalised state: identity is the resolved commit SHA.
+set +e
+fetch_state_write "reference" "$SHA"
+STATE_RC=$?
+set -e
+
 ok "reference ready: $REF_DIR @ ${SHA:0:12}"
 git -C "$REF_DIR" log -1 --format='   %h  %s%n   author: %an, %ar' | sed 's/^/   /'
+exit "$STATE_RC"

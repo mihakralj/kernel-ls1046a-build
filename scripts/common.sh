@@ -47,4 +47,148 @@ need() {
     fi
 }
 
+# ── Shared classification: ASK upstream path → tier ────────────────────
+# Single source of truth for "what counts as a kernel patch (T2)" so that
+# sync-upstream.sh and any future consumer agree.
+#
+#   T1  direct-apply  — userspace / OOT modules / lib patches
+#   T2  port required — touches patches/kernel/* (needs re-derivation onto 6.6)
+#   T3  meta          — README / Makefile / build scripts / anything else
+#
+# classify_path <path>           → echoes T1|T2|T3
+classify_path() {
+    case "$1" in
+        patches/kernel/*)                                     echo "T2" ;;
+        cdx/*|fci/*|auto_bridge/*)                            echo "T1" ;;
+        cmm/*|dpa_app/*)                                      echo "T1" ;;
+        patches/fmc/*|patches/fmlib/*|patches/lib*|\
+        patches/iptables*|patches/ppp/*|patches/rp-pppoe/*)   echo "T1" ;;
+        *)                                                    echo "T3" ;;
+    esac
+}
+
+# classify_commit <git-dir> <sha> → echoes the dominant tier (T2 > T1 > T3)
+# Reads files-changed list from the given bare/normal git dir.
+classify_commit() {
+    local gitdir="$1" sha="$2"
+    local files has_t1=0 has_t2=0 has_t3=0 t
+    files=$(git --git-dir="$gitdir" show --name-only --format= "$sha" | grep -v '^$' || true)
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        t=$(classify_path "$f")
+        case "$t" in
+            T2) has_t2=1 ;;
+            T1) has_t1=1 ;;
+            T3) has_t3=1 ;;
+        esac
+    done <<< "$files"
+    if   (( has_t2 )); then echo "T2"
+    elif (( has_t1 )); then echo "T1"
+    else                    echo "T3"
+    fi
+}
+
+# ── Shared patch-text helpers ──────────────────────────────────────────
+
+# sanitise_path <path> → safe filename token (matches the awk gsub used in
+# split_patch_per_file so that shell-side and awk-side names agree).
+# IMPORTANT: uses printf (no trailing newline) — `echo | tr` would translate
+# the appended newline into '_' and produce mismatched names.
+sanitise_path() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
+
+# split_patch_per_file <input.patch> <outdir>
+#   Walks a unified-diff patch and writes one chunk file per source file
+#   touched, named "<sanitised-path>.chunk", plus a manifest "_files".
+#   Strips `index aaa..bbb` blob-SHA lines (these change every kernel bump
+#   even when hunks are identical, and would produce false-positive drift).
+split_patch_per_file() {
+    local infile="$1" outdir="$2"
+    mkdir -p "$outdir"
+    awk -v outdir="$outdir" '
+        function flush() {
+            if (path != "") {
+                safe = path
+                gsub(/[^A-Za-z0-9._-]/, "_", safe)
+                chunkfile = outdir "/" safe ".chunk"
+                print buf > chunkfile
+                close(chunkfile)
+                print path >> (outdir "/_files")
+                buf = ""
+            }
+        }
+        /^diff --git a\/[^ ]+ b\/[^ ]+/ {
+            flush()
+            sub(/^diff --git a\/[^ ]+ b\//, "")
+            path = $0
+            buf = "diff --git a/" path " b/" path
+            next
+        }
+        /^index [0-9a-f]+\.\.[0-9a-f]+/ { next }   # skip blob-SHA noise
+        { buf = buf "\n" $0 }
+        END { flush() }
+    ' "$infile"
+}
+
+# ── Normalised "old vs new" state tracking for fetchers ────────────────
+#
+# All three fetchers (kernel / reference / upstream) write a state file with
+# a single content-identity string (kernel version, or commit SHA). The
+# helper below is the single source of truth for:
+#   - reading the previous identity
+#   - writing the new one
+#   - logging the transition (new / unchanged / changed A → B)
+#   - preserving the previous value to .prev so callers can diff later
+#
+# State file layout:  work/.<name>.state
+#     ID=<identity>
+#     TIMESTAMP=<ISO-8601 UTC>
+#
+# Conventional exit codes for fetchers using this helper:
+#   0   unchanged (cache hit; identity identical to previous run)
+#   10  changed  (first fetch, or identity differs from previous run)
+#   >0 non-10    error (via err())
+
+# fetch_state_read <name>      → echoes previous ID (empty if none)
+fetch_state_read() {
+    local name="$1" state="$WORK_DIR/.${name}.state"
+    [[ -f "$state" ]] || { echo ""; return 0; }
+    # shellcheck disable=SC2002
+    cat "$state" | awk -F= '$1=="ID"{print $2; exit}'
+}
+
+# fetch_state_write <name> <id>
+#   Preserves previous state to .prev, writes new state, and returns:
+#     - echoes one of: "new" | "unchanged" | "changed"
+#     - exports FETCH_PREV_ID / FETCH_NEW_ID for the caller
+#     - returns 0 on unchanged, 10 on new/changed (fetcher should propagate)
+fetch_state_write() {
+    local name="$1" new_id="$2"
+    local state="$WORK_DIR/.${name}.state"
+    local prev_state="${state}.prev"
+    local prev_id=""
+    [[ -f "$state" ]] && prev_id=$(fetch_state_read "$name")
+
+    # Preserve previous for caller diffing
+    [[ -f "$state" ]] && cp "$state" "$prev_state"
+
+    {
+        echo "ID=$new_id"
+        echo "TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$state"
+
+    export FETCH_PREV_ID="$prev_id"
+    export FETCH_NEW_ID="$new_id"
+
+    if [[ -z "$prev_id" ]]; then
+        ok "[$name] new: ${new_id:0:40}"
+        return 10
+    elif [[ "$prev_id" == "$new_id" ]]; then
+        dim "[$name] unchanged: ${new_id:0:40}"
+        return 0
+    else
+        ok "[$name] changed: ${prev_id:0:12} → ${new_id:0:12}"
+        return 10
+    fi
+}
+
 mkdir -p "$WORK_DIR"

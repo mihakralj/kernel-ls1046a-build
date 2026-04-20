@@ -69,27 +69,8 @@ fi
 
 REPORT="$WORK_DIR/upstream-sync.txt"
 
-# ── Classify a single commit by the paths it touches ────────────────────
-classify_commit() {
-    local sha="$1"
-    local files has_kpatch=0 has_mod=0 has_user=0 has_libpatch=0 has_meta=0
-    files=$(git --git-dir="$MIRROR" show --name-only --format= "$sha" | grep -v '^$' || true)
-    while IFS= read -r f; do
-        [[ -z "$f" ]] && continue
-        case "$f" in
-            patches/kernel/*)                                    has_kpatch=1 ;;
-            cdx/*|fci/*|auto_bridge/*)                           has_mod=1 ;;
-            cmm/*|dpa_app/*)                                     has_user=1 ;;
-            patches/fmc/*|patches/fmlib/*|patches/lib*|\
-            patches/iptables*|patches/ppp/*|patches/rp-pppoe/*)  has_libpatch=1 ;;
-            *)                                                    has_meta=1 ;;
-        esac
-    done <<< "$files"
-    if   (( has_kpatch ));                          then echo "T2"
-    elif (( has_mod || has_user || has_libpatch )); then echo "T1"
-    else                                                  echo "T3"
-    fi
-}
+# Per-commit tier classification is provided by common.sh::classify_commit
+# (single source of truth shared with derive-patches.sh).
 
 tier_colour() { case "$1" in T1) echo "$_C_GRN";; T2) echo "$_C_YEL";; T3) echo "$_C_BLUE";; esac; }
 tier_label()  { case "$1" in T1) echo "T1 direct-apply  ";; T2) echo "T2 port required ";; T3) echo "T3 meta           ";; esac; }
@@ -125,7 +106,7 @@ printf '%-10s  %-20s  %s\n' "---------" "--------------------" "-------" | tee -
 
 for sha in "${COMMITS[@]}"; do
     subject=$(git --git-dir="$MIRROR" log -1 --format='%s' "$sha")
-    tier=$(classify_commit "$sha")
+    tier=$(classify_commit "$MIRROR" "$sha")
     case "$tier" in
         T1) T1_COUNT=$((T1_COUNT+1)) ;;
         T2) T2_COUNT=$((T2_COUNT+1)) ;;

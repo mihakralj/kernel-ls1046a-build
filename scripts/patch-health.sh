@@ -3,14 +3,16 @@
 # the target linux-6.6.y source tree, without modifying it?
 #
 # Source of truth for patches (in priority order):
-#   1. work/derived/patches/kernel/   (output of derive-patches.sh)
-#   2. work/reference/patches/kernel/ (the static reference translation)
+#   1. work/derived/patches/kernel/   (output of derive-patches.sh, freshest)
+#   2. release/patches/kernel/        (committed last-known-good)
+#   3. work/reference/patches/kernel/ (raw upstream reference, fallback)
 #
 # Usage:
 #   ./scripts/patch-health.sh                   # uses work/.kernel-version
 #   ./scripts/patch-health.sh 6.6.123           # fetch then probe
-#   ./scripts/patch-health.sh --source derived  # force derived (default if present)
-#   ./scripts/patch-health.sh --source reference
+#   ./scripts/patch-health.sh --source derived  # force fresh derivation output
+#   ./scripts/patch-health.sh --source release  # force committed release/
+#   ./scripts/patch-health.sh --source reference# force raw reference repo
 #
 # Exit codes:
 #   0  all patches apply cleanly
@@ -40,21 +42,32 @@ KDIR="$WORK_DIR/linux-$KVER"
 [[ -d "$KDIR" ]] || err "kernel source missing: $KDIR"
 
 # ── Resolve patch source ────────────────────────────────────────────────
+# Auto-pick priority:  work/derived/  →  release/  →  work/reference/
 if [[ -z "$SOURCE" ]]; then
-    if [[ -d "$WORK_DIR/derived/patches/kernel" ]]; then
-        SOURCE="derived"
-    else
-        SOURCE="reference"
+    if   [[ -d "$WORK_DIR/derived/patches/kernel" ]]; then SOURCE="derived"
+    elif [[ -d "$REPO_ROOT/release/patches/kernel" ]];  then SOURCE="release"
+    else                                                     SOURCE="reference"
     fi
 fi
 
 case "$SOURCE" in
     derived)
         [[ -d "$WORK_DIR/derived/patches/kernel" ]] \
-            || err "derived/ not found — run ./scripts/derive-patches.sh first"
+            || err "work/derived/ not found — run ./scripts/derive-patches.sh first"
         PATCH_DIR="$WORK_DIR/derived/patches/kernel"
         SDK_DIR="$PATCH_DIR/sdk-sources"
-        TAG="derived"
+        TAG="derived (work/derived)"
+        ;;
+    release)
+        [[ -d "$REPO_ROOT/release/patches/kernel" ]] \
+            || err "release/ not found — run ./scripts/publish-release.sh first"
+        PATCH_DIR="$REPO_ROOT/release/patches/kernel"
+        SDK_DIR="$PATCH_DIR/sdk-sources"
+        RELEASE_SHA=""
+        if [[ -f "$REPO_ROOT/release/manifest.json" ]] && command -v jq >/dev/null 2>&1; then
+            RELEASE_SHA=$(jq -r '.reference_sha // ""' "$REPO_ROOT/release/manifest.json" 2>/dev/null)
+        fi
+        TAG="release${RELEASE_SHA:+ @ ${RELEASE_SHA:0:12}}"
         ;;
     reference)
         [[ -d "$WORK_DIR/reference" ]] || "$SCRIPTS_DIR/fetch-reference.sh"
@@ -62,7 +75,7 @@ case "$SOURCE" in
         SDK_DIR="$PATCH_DIR/sdk-sources"
         TAG="reference @ $(cat "$WORK_DIR/.reference-sha" 2>/dev/null | cut -c1-12)"
         ;;
-    *) err "unknown --source '$SOURCE' (use: derived | reference)" ;;
+    *) err "unknown --source '$SOURCE' (use: derived | release | reference)" ;;
 esac
 
 # ── Discover patch files (prefer series file) ───────────────────────────

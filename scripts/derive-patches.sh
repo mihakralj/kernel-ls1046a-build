@@ -103,41 +103,11 @@ if [[ "$DELTA_LINES" -ne 0 ]]; then
     SPLIT_REF="$OUT/reports/chunks-reference"
     mkdir -p "$SPLIT_BASELINE" "$SPLIT_TARGET" "$SPLIT_REF"
 
-    # Split a unified patch file into per-file chunks keyed by the 'b/' path.
-    # Writes "<outdir>/<sanitised-path>.chunk" and a manifest "<outdir>/_files".
-    # Strips `index aaa..bbb` blob-SHA lines — these change with every upstream
-    # kernel bump even when hunks are identical, and would otherwise flood the
-    # drift detector with false positives.
-    split_patch() {
-        local infile="$1" outdir="$2"
-        awk -v outdir="$outdir" '
-            function flush() {
-                if (path != "") {
-                    safe = path
-                    gsub(/[^A-Za-z0-9._-]/, "_", safe)
-                    chunkfile = outdir "/" safe ".chunk"
-                    print buf > chunkfile
-                    close(chunkfile)
-                    print path >> (outdir "/_files")
-                    buf = ""
-                }
-            }
-            /^diff --git a\/[^ ]+ b\/[^ ]+/ {
-                flush()
-                sub(/^diff --git a\/[^ ]+ b\//, "")
-                path = $0
-                buf = "diff --git a/" path " b/" path
-                next
-            }
-            /^index [0-9a-f]+\.\.[0-9a-f]+/ { next }   # skip blob-SHA noise
-            { buf = buf "\n" $0 }
-            END { flush() }
-        ' "$infile"
-    }
-
-    split_patch "$UP_PATCH_B"                             "$SPLIT_BASELINE"
-    split_patch "$UP_PATCH_T"                             "$SPLIT_TARGET"
-    split_patch "$REF_DIR/$REFERENCE_KERNEL_PATCH"        "$SPLIT_REF"
+    # split_patch_per_file is provided by common.sh — single source of truth
+    # for chunking a unified patch into one file per source path.
+    split_patch_per_file "$UP_PATCH_B"                       "$SPLIT_BASELINE"
+    split_patch_per_file "$UP_PATCH_T"                       "$SPLIT_TARGET"
+    split_patch_per_file "$REF_DIR/$REFERENCE_KERNEL_PATCH"  "$SPLIT_REF"
 
     n_base=$(wc -l < "$SPLIT_BASELINE/_files" 2>/dev/null | tr -d ' ' || echo 0)
     n_tgt=$(wc -l  < "$SPLIT_TARGET/_files"   2>/dev/null | tr -d ' ' || echo 0)
@@ -151,18 +121,15 @@ if [[ "$DELTA_LINES" -ne 0 ]]; then
     DRIFTED_LIST="$OUT/reports/drifted-files.txt"
     : > "$DRIFTED_LIST"
 
-    # Shell-side path→safe converter. Uses `printf` (no trailing newline) to
-    # match awk's gsub behaviour — otherwise `tr -c` would translate the
-    # newline appended by `echo` into '_' and produce Makefile_.chunk instead
-    # of Makefile.chunk, causing every file to mismatch.
-    sanitise() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
+    # sanitise_path is provided by common.sh and matches the awk gsub used in
+    # split_patch_per_file so chunk filenames agree on both sides.
 
     # union of baseline + target file lists
     cat "$SPLIT_BASELINE/_files" "$SPLIT_TARGET/_files" 2>/dev/null \
         | sort -u \
         | while IFS= read -r path; do
         [[ -z "$path" ]] && continue
-        safe=$(sanitise "$path")
+        safe=$(sanitise_path "$path")
         cb="$SPLIT_BASELINE/$safe.chunk"
         ct="$SPLIT_TARGET/$safe.chunk"
         # If one side is missing, it's drift
@@ -177,7 +144,7 @@ if [[ "$DELTA_LINES" -ne 0 ]]; then
     # Build reconciliation bundles for each drifted file
     while IFS= read -r path; do
         [[ -z "$path" ]] && continue
-        safe=$(sanitise "$path")
+        safe=$(sanitise_path "$path")
         bundle="$OUT/reconciliation/$safe"
         mkdir -p "$bundle"
         echo "$path" > "$bundle/PATH"
@@ -280,7 +247,7 @@ SUMMARY="$OUT/SUMMARY.md"
         if [[ -f "$OUT/reports/drifted-files.txt" ]]; then
             while IFS= read -r p; do
                 [[ -z "$p" ]] && continue
-                safe=$(printf '%s' "$p" | tr -c 'A-Za-z0-9._-' '_')
+                safe=$(sanitise_path "$p")
                 rs=$(cat "$OUT/reconciliation/$safe/REFERENCE_STATUS" 2>/dev/null || echo "?")
                 echo "- \`$p\`  —  reference: $rs"
             done < "$OUT/reports/drifted-files.txt"

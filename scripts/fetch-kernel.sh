@@ -62,8 +62,16 @@ else
     ok "extracted to $SRCDIR"
 fi
 
-# ── Record version ──────────────────────────────────────────────────────
+# ── Record version (legacy marker, kept for backward compat) ────────────
 echo "$VERSION" > "$WORK_DIR/.kernel-version"
+
+# ── Normalised state: report old vs new ─────────────────────────────────
+# Identity for the kernel is the version string. fetch_state_write returns
+# 0 on unchanged, 10 on new/changed; we propagate that as our own exit code.
+set +e
+fetch_state_write "kernel" "$VERSION"
+STATE_RC=$?
+set -e
 
 # ── Summary ─────────────────────────────────────────────────────────────
 KVER=$(awk '/^VERSION/{v=$3} /^PATCHLEVEL/{p=$3} /^SUBLEVEL/{s=$3} END{print v"."p"."s}' \
@@ -71,3 +79,4 @@ KVER=$(awk '/^VERSION/{v=$3} /^PATCHLEVEL/{p=$3} /^SUBLEVEL/{s=$3} END{print v".
 [[ "$KVER" == "$VERSION" ]] || warn "Makefile reports $KVER, expected $VERSION"
 
 ok "kernel ready: ${SRCDIR} (${KVER})"
+exit "$STATE_RC"
