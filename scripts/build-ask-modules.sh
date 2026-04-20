@@ -97,6 +97,41 @@ dim "   cross:        ${CROSS_COMPILE}gcc"
 rm -rf "$SRC_ROOT" "$BUILD_ROOT" "$STAGING"
 mkdir -p "$SRC_ROOT" "$BUILD_ROOT" "$STAGING"
 
+# ── Precondition: NXP linux-lsdk FMan SDK layer present? ────────────────
+#
+# The ASK OOT modules (cdx in particular) include
+#   $(srctree)/drivers/net/ethernet/freescale/sdk_fman/ncsw_config.mk
+# which is part of the proprietary NXP linux-lsdk FMan SDK subtree —
+# hundreds of files NXP historically shipped as a separate layer on top
+# of mainline. The 6.6 reference tree (mihakralj/ask-ls1046a-6.6) only
+# installs a 4-file stub of sdk_fman/ alongside sdk_dpaa/ and does NOT
+# include ncsw_config.mk. Without that file the cdx/fci/auto_bridge
+# modules cannot be compiled.
+#
+# The in-kernel fast-path hooks (from 003-ask-kernel-hooks.patch) ARE
+# built into the kernel image .deb we already produce, so the hook
+# surface is present. What's missing is the OOT driver that plugs into
+# those hooks — and that driver requires the NXP SDK FMan layer.
+#
+# If ncsw_config.mk is absent we skip this build cleanly rather than
+# failing. To enable, the user must layer the NXP linux-lsdk sdk_fman/
+# subtree into release/patches/kernel/sdk-sources/ and re-run.
+NCSW_MK="$KDIR/drivers/net/ethernet/freescale/sdk_fman/ncsw_config.mk"
+if [[ ! -f "$NCSW_MK" ]]; then
+    warn "NXP linux-lsdk FMan SDK not present in kernel tree"
+    dim "   expected: $NCSW_MK"
+    dim "   this file is provided by the NXP linux-lsdk sdk_fman subtree,"
+    dim "   which the 6.6 reference repo does not bundle. The in-kernel"
+    dim "   fast-path hooks are still compiled in — only the OOT drivers"
+    dim "   (cdx/fci/auto_bridge) are skipped."
+    dim ""
+    dim "   to enable ASK OOT modules, layer the NXP linux-lsdk sdk_fman/"
+    dim "   subtree into release/patches/kernel/sdk-sources/ so that"
+    dim "   ncsw_config.mk is installed by apply-to-tree.sh"
+    info "ASK OOT modules: SKIPPED (SDK FMan layer absent) — not a build failure"
+    exit 0
+fi
+
 # Extract the three module trees from the bare mirror
 begin_group "extract ASK sources"
 for dir in cdx fci auto_bridge; do

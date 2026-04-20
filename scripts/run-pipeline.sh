@@ -272,7 +272,14 @@ if (( DO_ASK_EXTRAS )); then
         run_step_softfail 1 "build ASK OOT modules (cdx/fci/auto_bridge)" \
             "$SCRIPTS_DIR/build-ask-modules.sh"
         if (( LAST_EXIT == 0 )); then
-            ASK_MODULES_STATUS="built (ask-modules-*.deb)"
+            # Disambiguate: the script exits 0 both when a .deb is built and
+            # when it intentionally skips (NXP FMan SDK absent). Look for the
+            # .deb to tell them apart.
+            if compgen -G "$WORK_DIR/build/ask-modules-*.deb" >/dev/null; then
+                ASK_MODULES_STATUS="built (ask-modules-*.deb)"
+            else
+                ASK_MODULES_STATUS="skipped (NXP FMan SDK not layered — see build log)"
+            fi
         else
             ASK_MODULES_STATUS="build-ask-modules failed"
         fi
