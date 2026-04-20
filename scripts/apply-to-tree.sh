@@ -127,9 +127,12 @@ ok "hooks patch applied"
 # ── Step 3: seed + append config ────────────────────────────────────────
 info "step 3/4: configuring kernel ($DEFCONFIG + ask.config)"
 if [[ ! -f "$KDIR/.config" ]]; then
-    (cd "$KDIR" && make ARCH=arm64 "$DEFCONFIG" >/dev/null) \
+    dim "   running: make ARCH=arm64 $DEFCONFIG"
+    # Keep output visible in CI logs — if defconfig fails we want the
+    # error message, not a silent exit.
+    (cd "$KDIR" && make ARCH=arm64 "$DEFCONFIG" 2>&1 | tail -5) \
         || err "make $DEFCONFIG failed"
-    dim "   seeded .config from $DEFCONFIG"
+    ok "   seeded .config from $DEFCONFIG"
 fi
 
 # Disable conflicting mainline DPAA ETH before appending ASK options.
@@ -144,7 +147,9 @@ cat "$CFG_FRAG"         >> "$KDIR/.config"
 
 # ── Step 4: olddefconfig to resolve new symbols ─────────────────────────
 info "step 4/4: resolving config (make ARCH=arm64 olddefconfig)"
-(cd "$KDIR" && make ARCH=arm64 olddefconfig >/dev/null) \
+# Surface olddefconfig output — this is where you'd see "symbol foo is
+# obsolete" or "new symbol bar, set to N" lines that reveal ask.config drift.
+(cd "$KDIR" && make ARCH=arm64 olddefconfig 2>&1) \
     || err "make olddefconfig failed"
 
 # ── Stamp the tree ──────────────────────────────────────────────────────

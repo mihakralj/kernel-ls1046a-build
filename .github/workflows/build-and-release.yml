@@ -56,6 +56,29 @@ jobs:
             fakeroot kmod dpkg-dev rsync cpio \
             jq curl ca-certificates
 
+      - name: Preflight (environment report)
+        # Dump everything useful for post-mortem into a single collapsible
+        # group. Saves ten minutes of "what was the runner again?" later.
+        run: |
+          echo "::group::Runner environment"
+          echo "# uname"; uname -a
+          echo "# distro"; cat /etc/os-release || true
+          echo "# cpu";    nproc; head -20 /proc/cpuinfo | grep -E 'model name|cpu cores' | head -2
+          echo "# memory"; free -h
+          echo "# disk";   df -h /
+          echo "# git";    git --version
+          echo "# gcc (host)"; gcc --version | head -1
+          echo "# gcc (cross)"; aarch64-linux-gnu-gcc --version | head -1
+          echo "# make";   make --version | head -1
+          echo "# gh";     gh --version | head -1
+          echo "# jq";     jq --version
+          echo "::endgroup::"
+          echo "::group::Repo state"
+          git log -1 --format='commit:    %H%nauthor:    %an <%ae>%ndate:      %ad%nsubject:   %s'
+          git status --short
+          cat versions.lock
+          echo "::endgroup::"
+
       - name: Cache kernel source tarball
         id: kcache
         uses: actions/cache@v4

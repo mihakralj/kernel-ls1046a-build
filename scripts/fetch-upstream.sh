@@ -38,11 +38,13 @@ ok   "Upstream repo:   $UPSTREAM_REPO"
 info "Tracking branch: $UPSTREAM_BRANCH"
 
 if [[ ! -d "$MIRROR" ]]; then
-    info "cloning bare mirror (first run; full history)…"
-    git clone --bare --quiet "$UPSTREAM_REPO" "$MIRROR"
+    info "cloning bare mirror (first run; full history) → $MIRROR"
+    # No --quiet: CI wants progress on stderr (big repo, slow clone).
+    git clone --bare --progress "$UPSTREAM_REPO" "$MIRROR"
 else
-    dim "updating mirror…"
-    git --git-dir="$MIRROR" fetch --quiet --tags --prune origin
+    _prev_head=$(git --git-dir="$MIRROR" rev-parse "$UPSTREAM_BRANCH" 2>/dev/null || echo '?')
+    dim "updating mirror (was ${_prev_head:0:12})…"
+    git --git-dir="$MIRROR" fetch --tags --prune origin
 fi
 
 HEAD_SHA=$(git --git-dir="$MIRROR" rev-parse "$UPSTREAM_BRANCH")

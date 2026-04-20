@@ -66,16 +66,31 @@ done
 
 # ── Step runner ─────────────────────────────────────────────────────────
 STEP=0
-run_step() {
-    local label="$1"; shift
+_STEP_START=0
+_step_begin() {
+    local label="$1"
     STEP=$((STEP+1))
     echo
+    begin_group "Step $STEP: $label"
     info "── Step $STEP: $label ──"
+    _STEP_START=$(date +%s)
+}
+_step_end() {
+    local elapsed=$(( $(date +%s) - _STEP_START ))
+    dim "   (step $STEP done in ${elapsed}s)"
+    end_group
+}
+
+run_step() {
+    local label="$1"; shift
+    _step_begin "$label"
     dim "   \$ $*"
     if (( DRY_RUN )); then
+        _step_end
         return 0
     fi
     "$@"
+    _step_end
 }
 
 # Same as run_step but tolerates a specific non-zero exit code (passed via
@@ -84,18 +99,18 @@ LAST_EXIT=0
 run_step_softfail() {
     local allow_exit="$1"; shift
     local label="$1"; shift
-    STEP=$((STEP+1))
-    echo
-    info "── Step $STEP: $label ──"
+    _step_begin "$label"
     dim "   \$ $*"
     if (( DRY_RUN )); then
         LAST_EXIT=0
+        _step_end
         return 0
     fi
     set +e
     "$@"
     LAST_EXIT=$?
     set -e
+    _step_end
     if (( LAST_EXIT != 0 && LAST_EXIT != allow_exit )); then
         err "step '$label' failed with exit $LAST_EXIT"
     fi

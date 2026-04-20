@@ -34,12 +34,14 @@ ok "Reference repo:  ${REFERENCE_REPO}"
 info "Target ref:      ${REF}"
 
 if [[ -d "${REF_DIR}/.git" ]]; then
-    dim "updating existing clone…"
+    dim "updating existing clone ($(git -C "$REF_DIR" rev-parse --short HEAD 2>/dev/null || echo '?'))…"
     git -C "$REF_DIR" fetch --tags --prune origin
 else
-    info "cloning…"
+    info "cloning $REFERENCE_REPO → $REF_DIR"
     rm -rf "$REF_DIR"
-    git clone --quiet "$REFERENCE_REPO" "$REF_DIR"
+    # No --quiet: in CI we want progress on stderr so a slow network
+    # doesn't look like a hang.
+    git clone --progress "$REFERENCE_REPO" "$REF_DIR"
 fi
 
 SHA=""

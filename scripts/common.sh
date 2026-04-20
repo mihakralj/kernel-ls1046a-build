@@ -21,11 +21,36 @@ else
     _C_BLUE=''; _C_YEL=''; _C_RED=''; _C_GRN=''; _C_DIM=''; _C_RST=''
 fi
 
-info()  { printf '%s==>%s %s\n'      "$_C_BLUE" "$_C_RST" "$*"; }
-ok()    { printf '%s ✓%s %s\n'       "$_C_GRN"  "$_C_RST" "$*"; }
-warn()  { printf '%s⚠ %s%s\n'        "$_C_YEL"  "$*"      "$_C_RST"; }
-err()   { printf '%s✗ %s%s\n'        "$_C_RED"  "$*"      "$_C_RST" >&2; exit 1; }
-dim()   { printf '%s%s%s\n'          "$_C_DIM"  "$*"      "$_C_RST"; }
+# CI-aware logging. When running under GitHub Actions ($GITHUB_ACTIONS=true)
+# or any CI system ($CI=true), prepend a UTC timestamp to every log line so
+# long gaps between messages are obvious in the job log. Timestamps can be
+# force-enabled with LOG_TIMESTAMPS=1 / force-disabled with LOG_TIMESTAMPS=0.
+_ts() {
+    if [[ "${LOG_TIMESTAMPS:-auto}" == "0" ]]; then return; fi
+    if [[ "${LOG_TIMESTAMPS:-auto}" == "1" \
+       || "${GITHUB_ACTIONS:-}" == "true" \
+       || "${CI:-}" == "true" ]]; then
+        printf '[%s] ' "$(date -u +%H:%M:%S)"
+    fi
+}
+
+info()  { printf '%s%s==>%s %s\n'      "$(_ts)" "$_C_BLUE" "$_C_RST" "$*"; }
+ok()    { printf '%s%s ✓%s %s\n'       "$(_ts)" "$_C_GRN"  "$_C_RST" "$*"; }
+warn()  { printf '%s%s⚠ %s%s\n'        "$(_ts)" "$_C_YEL"  "$*"      "$_C_RST"; }
+err()   { printf '%s%s✗ %s%s\n'        "$(_ts)" "$_C_RED"  "$*"      "$_C_RST" >&2; exit 1; }
+dim()   { printf '%s%s%s%s\n'          "$(_ts)" "$_C_DIM"  "$*"      "$_C_RST"; }
+
+# GitHub Actions log-group markers. Under GHA these collapse a range of lines
+# into an expandable block; everywhere else they are silent no-ops. Use:
+#   begin_group "label"; ...work... ; end_group
+begin_group() {
+    [[ "${GITHUB_ACTIONS:-}" == "true" ]] && printf '::group::%s\n' "$*"
+    return 0
+}
+end_group() {
+    [[ "${GITHUB_ACTIONS:-}" == "true" ]] && printf '::endgroup::\n'
+    return 0
+}
 
 # Fetch latest 6.6.y stable version from kernel.org releases.json
 # Prints e.g. "6.6.123" to stdout
