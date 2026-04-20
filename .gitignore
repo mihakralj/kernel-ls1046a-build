@@ -1,0 +1,14 @@
+# Build artifacts
+work/
+dist/
+*.tar.xz
+*.tar.gz
+*.tar.bz2
+*.deb
+*.dtb
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store

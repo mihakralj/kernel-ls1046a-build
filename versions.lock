@@ -1,0 +1,40 @@
+# versions.lock — pinned inputs for the derivation engine.
+#
+# This file is `source`d by the scripts. Each variable uses `: "${VAR:=...}"`
+# so that any value already present in the environment (e.g. `UPSTREAM_BASELINE=foo ./scripts/derive-patches.sh`)
+# wins over the default baked in here. To change the persistent pin,
+# edit the literal below and commit.
+
+# ── Reference (static 6.6 translation) ─────────────────────────────────
+: "${REFERENCE_REPO:=https://github.com/mihakralj/ask-ls1046a-6.6.git}"
+: "${REFERENCE_REF:=main}"
+
+# ── Upstream (live 6.12 feed from Mono) ────────────────────────────────
+: "${UPSTREAM_REPO:=https://github.com/we-are-mono/ASK.git}"
+: "${UPSTREAM_BRANCH:=mt-6.12.y}"
+
+# Baseline = the upstream commit the reference was derived from. Default
+# is the tag mt-6.12.49-2.2.0 (SHA a211ea865379), inferred from
+# ASK-6.12-VS-6.6-COMPARISON.md dated 2026-04-10. Adjust after each
+# successful derivation to the new target SHA.
+: "${UPSTREAM_BASELINE:=a211ea865379}"
+
+# Target = optional pin. Empty → HEAD of UPSTREAM_BRANCH.
+: "${UPSTREAM_TARGET:=}"
+
+# ── Kernel ─────────────────────────────────────────────────────────────
+# Empty → fetch-kernel.sh picks latest 6.6.y from kernel.org.
+: "${KERNEL_VERSION:=}"
+
+# ── File paths inside upstream 6.12 tree ───────────────────────────────
+: "${UPSTREAM_KERNEL_PATCH:=patches/kernel/002-mono-gateway-ask-kernel_linux_6_12.patch}"
+
+# ── File paths inside reference 6.6 tree ───────────────────────────────
+: "${REFERENCE_KERNEL_PATCH:=patches/kernel/003-ask-kernel-hooks.patch}"
+: "${REFERENCE_SDK_SOURCES:=patches/kernel/sdk-sources}"
+
+# Export so subshell invocations (e.g. child scripts) inherit values.
+export REFERENCE_REPO REFERENCE_REF
+export UPSTREAM_REPO UPSTREAM_BRANCH UPSTREAM_BASELINE UPSTREAM_TARGET
+export KERNEL_VERSION
+export UPSTREAM_KERNEL_PATCH REFERENCE_KERNEL_PATCH REFERENCE_SDK_SOURCES
