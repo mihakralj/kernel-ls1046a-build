@@ -1,0 +1,126 @@
+name: build-and-release
+
+# Triggers:
+#   - push to the main branch → build + patch-health, NO release (safety net CI)
+#   - workflow_dispatch        → manual build; optional release upload
+#   - push tag kernel-*        → build the pinned version and upload as a Release
+#
+# The job cross-compiles arm64 on an x86_64 runner (ubuntu-latest) — this is
+# what `make bindeb-pkg` with CROSS_COMPILE=aarch64-linux-gnu- does natively.
+
+on:
+  push:
+    branches: [ "lts-6.6-ls1046a", "main" ]
+    tags:     [ "kernel-*" ]
+    paths:
+      - "release/**"
+      - "scripts/**"
+      - ".github/workflows/build-and-release.yml"
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: "Linux 6.6.y version to build (blank → latest)"
+        required: false
+        default: ""
+      publish:
+        description: "Upload the resulting .debs to a GitHub Release"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write   # needed for `gh release create` on tag pushes
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Cross-compile ASK kernel (arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install toolchain and build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu \
+            libssl-dev bc flex bison libelf-dev \
+            fakeroot kmod dpkg-dev rsync cpio \
+            jq curl ca-certificates
+
+      - name: Cache kernel source tarball
+        id: kcache
+        uses: actions/cache@v4
+        with:
+          path: work/linux-*.tar.xz
+          key: kernel-${{ hashFiles('versions.lock') }}-${{ github.event.inputs.kernel_version || 'latest' }}
+
+      - name: Run pipeline (fetch → health → build)
+        env:
+          KERNEL_VERSION_INPUT: ${{ github.event.inputs.kernel_version }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          # On tag push (kernel-6.6.x-askN), derive the kernel version from the tag.
+          TAG_KVER=""
+          if [[ "${GITHUB_REF}" == refs/tags/kernel-* ]]; then
+              # tag form: kernel-6.6.123-ask1
+              TAG_KVER="${GITHUB_REF_NAME#kernel-}"
+              TAG_KVER="${TAG_KVER%-ask*}"
+          fi
+          KVER="${KERNEL_VERSION_INPUT:-$TAG_KVER}"
+          # --skip-fetch is not used — we want the fresh kernel tarball pulled
+          # from kernel.org. --no-derive uses committed release/ as the source
+          # of truth (matches what a downstream consumer would do).
+          if [[ -n "$KVER" ]]; then
+              ./scripts/run-pipeline.sh "$KVER" --no-derive --build
+          else
+              ./scripts/run-pipeline.sh --no-derive --build
+          fi
+
+      - name: Collect artefacts
+        id: collect
+        run: |
+          set -euo pipefail
+          ls -la work/build/ || true
+          # Derive kernel version from a .deb filename for downstream steps.
+          KVER=$(ls work/build/linux-image-*.deb 2>/dev/null | head -1 \
+                  | sed -E 's|.*linux-image-([0-9]+\.[0-9]+\.[0-9]+).*|\1|')
+          echo "kver=$KVER" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artefacts (workflow)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ask-kernel-${{ steps.collect.outputs.kver }}
+          path: |
+            work/build/*.deb
+            work/build/*.changes
+            work/build/*.buildinfo
+            work/build/build.log
+            release/manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release (tag push)
+        if: startsWith(github.ref, 'refs/tags/kernel-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Tag already exists (this workflow was triggered by its push), so
+          # publish-binaries.sh would refuse. Use --force to overwrite the
+          # auto-created tag entry with our fully-populated release.
+          ./scripts/publish-binaries.sh --tag "${GITHUB_REF_NAME}" --force
+
+      - name: Publish GitHub Release (manual dispatch)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/publish-binaries.sh

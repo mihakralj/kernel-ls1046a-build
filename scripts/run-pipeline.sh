@@ -22,6 +22,7 @@
 #   ./scripts/run-pipeline.sh --publish       # on status=ok, promote work/derived/
 #                                             # into the committed release/ tree
 #   ./scripts/run-pipeline.sh --build         # apply-to-tree + build-kernel (.deb)
+#   ./scripts/run-pipeline.sh --release-binaries # upload work/build/*.deb to GitHub Releases
 #   ./scripts/run-pipeline.sh --dry-run       # print steps, do not execute
 #
 # Exit codes:
@@ -31,6 +32,7 @@
 #      (i.e. the operator was told to do work but pipeline didn't do it)
 #   3  derive-patches produced status=needs_review (manual reconciliation)
 #   4  --build: apply-to-tree or build-kernel failed
+#   5  --release-binaries: publish-binaries failed
 #   >0 any prerequisite step failed
 
 set -euo pipefail
@@ -43,17 +45,19 @@ DO_DERIVE=1
 DO_HEALTH=1
 DO_PUBLISH=0
 DO_BUILD=0
+DO_RELEASE_BIN=0
 DRY_RUN=0
 
 while (( $# )); do
     case "$1" in
-        --skip-fetch) SKIP_FETCH=1; shift ;;
-        --no-derive)  DO_DERIVE=0;  shift ;;
-        --no-health)  DO_HEALTH=0;  shift ;;
-        --publish)    DO_PUBLISH=1; shift ;;
-        --build)      DO_BUILD=1;   shift ;;
-        --dry-run)    DRY_RUN=1;    shift ;;
-        -h|--help)    sed -n '1,34p' "$0"; exit 0 ;;
+        --skip-fetch)        SKIP_FETCH=1;     shift ;;
+        --no-derive)         DO_DERIVE=0;      shift ;;
+        --no-health)         DO_HEALTH=0;      shift ;;
+        --publish)           DO_PUBLISH=1;     shift ;;
+        --build)             DO_BUILD=1;       shift ;;
+        --release-binaries)  DO_RELEASE_BIN=1; shift ;;
+        --dry-run)           DRY_RUN=1;        shift ;;
+        -h|--help)           sed -n '1,36p' "$0"; exit 0 ;;
         --) shift; break ;;
         -*) err "unknown flag: $1" ;;
         *)  KERNEL_VERSION_ARG="$1"; shift ;;
@@ -106,6 +110,7 @@ ok "ASK lts_6.6_ls1046a — pipeline starting"
 (( DO_HEALTH  )) || dim "   --no-health:  patch-health will be skipped"
 (( DO_PUBLISH )) && dim "   --publish:    release/ will be refreshed if status=ok"
 (( DO_BUILD   )) && dim "   --build:      apply-to-tree + build-kernel will run"
+(( DO_RELEASE_BIN )) && dim "   --release-binaries: .debs → GitHub Release"
 (( DRY_RUN    )) && warn "DRY-RUN: no commands will actually execute"
 
 # ── 1–3. Fetch (independent; sequential here for clean log output) ──────
@@ -233,6 +238,29 @@ if (( DO_BUILD )); then
     fi
 fi
 
+# ── 9. Release binaries (optional) ──────────────────────────────────────
+# Only runs on --release-binaries AND when --build succeeded. Uploads
+# work/build/*.deb + SHA256SUMS + manifest.json to a GitHub Release tagged
+# kernel-<kver>-ask<N>. Requires gh CLI authenticated.
+RELEASE_BIN_STATUS="skipped"
+if (( DO_RELEASE_BIN )); then
+    if (( ! DO_BUILD )); then
+        warn "--release-binaries: refusing (requires --build)"
+        RELEASE_BIN_STATUS="refused (no --build)"
+    elif [[ "$BUILD_STATUS" != "built"* ]]; then
+        warn "--release-binaries: refusing (build did not succeed: $BUILD_STATUS)"
+        RELEASE_BIN_STATUS="refused ($BUILD_STATUS)"
+    else
+        run_step_softfail 1 "upload binaries to GitHub Release (publish-binaries)" \
+            "$SCRIPTS_DIR/publish-binaries.sh"
+        if (( LAST_EXIT == 0 )); then
+            RELEASE_BIN_STATUS="published"
+        else
+            RELEASE_BIN_STATUS="publish-binaries failed"
+        fi
+    fi
+fi
+
 # ── Summary ─────────────────────────────────────────────────────────────
 echo
 info "── Pipeline summary ──"
@@ -254,6 +282,7 @@ else
 fi
 printf '   publish-release: %s\n' "$PUBLISH_STATUS"
 printf '   build-kernel:    %s\n' "$BUILD_STATUS"
+printf '   release-bin:     %s\n' "$RELEASE_BIN_STATUS"
 
 # ── Exit code policy ────────────────────────────────────────────────────
 if (( HEALTH_EXIT != 0 )); then
@@ -265,6 +294,10 @@ if [[ "$DERIVE_STATUS" == "needs_review" ]]; then
 fi
 if (( DO_BUILD )) && [[ "$BUILD_STATUS" != "built"* && "$BUILD_STATUS" != "skipped" ]]; then
     err "--build stage failed: $BUILD_STATUS"
+fi
+if (( DO_RELEASE_BIN )) && [[ "$RELEASE_BIN_STATUS" == *"failed"* ]]; then
+    warn "--release-binaries: $RELEASE_BIN_STATUS"
+    exit 5
 fi
 
 ok "pipeline complete"
