@@ -27,6 +27,7 @@ Debian packages for the NXP LS1046A. All of it driven by one entry point.
 - [The pipeline](#the-pipeline)
 - [Scripts, one-liners](#scripts-one-liners)
 - [Outputs](#outputs)
+- [ASK stack layers](#ask-stack-layers)
 - [Quick start](#quick-start)
 - [CI and releases](#ci-and-releases)
 - [For downstream consumers (vyos-ls1046a-build)](#for-downstream-consumers-vyos-ls1046a-build)
@@ -114,6 +115,7 @@ and the last thing you want is a monolith.
 | `publish-release.sh` | `work/derived/` | `release/` (overwrite) | 0 published, 1 precondition failed, 2 `--check` sees drift |
 | `apply-to-tree.sh` | kernel tree + source fallback | kernel tree with SDK copied, patch applied, `.ask-applied` marker | 0 / 1 |
 | `build-kernel.sh` | ASK-applied tree | `work/build/*.deb` + `build.log` | 0 / 1 |
+| `build-ask-modules.sh` | ASK-applied tree + `work/upstream.git/` | `work/build/ask-modules-*.deb` (cdx/fci/auto_bridge OOT `.ko`s) | 0 built **or** skipped (SDK precondition), 1 fail |
 | `publish-binaries.sh` | `work/build/` + `release/manifest.json` | GitHub Release tagged `kernel-<ver>-askN` | 0 / 1 |
 | `run-pipeline.sh` | all of the above | orchestrated run + summary | 0 ok, 1 health fail, 2 T2-no-derive, 3 needs-review, 4 build fail, 5 publish-bin fail |
 | `common.sh` | n/a (sourced) | helpers: classify, split, fetch-state | n/a |
@@ -180,10 +182,79 @@ upload. Gitignored.
 
 ### GitHub Releases (permanent, consumable)
 
-Tagged `kernel-<kver>-ask<N>`. Attached: the four `.deb`s above plus
-`SHA256SUMS` and `manifest.json`. Release notes include the reference SHA,
-upstream target SHA, SDK source count, and a paste-ready download block for
-`vyos-ls1046a-build`. This is the URL downstream pins against.
+Tagged `kernel-<kver>-ask<N>`. Attached: the four kernel `.deb`s above plus,
+when enabled and their preconditions are met, any of the additional ASK
+layer `.deb`s listed in [ASK stack layers](#ask-stack-layers). Also
+attached: `SHA256SUMS` and `manifest.json`. Release notes include the
+reference SHA, upstream target SHA, SDK source count, and a paste-ready
+download block for `vyos-ls1046a-build`. This is the URL downstream pins
+against.
+
+## ASK stack layers
+
+The four kernel `.debs` produced by `build-kernel.sh` cover only what
+`make bindeb-pkg` emits: the kernel image (with the ASK fast-path hooks
+compiled in), debug symbols, headers, and libc-dev. Without additional
+layers, the in-kernel hooks remain **dormant** — every packet still falls
+through to the Linux slow path because nothing is registered on the hook
+sites.
+
+The full ASK stack is five layers. Each is a separate optional build that
+produces its own `.deb` (or set of `.deb`s) and is wired into the pipeline
+behind a feature flag.
+
+| # | Layer | What it contains | Pipeline flag | Status |
+|---|---|---|---|---|
+| 0 | **Kernel image** (always) | `linux-image-*`, `linux-headers-*`, `linux-libc-dev`, debug — ASK hooks compiled in | *(default)* | ✅ Shipping |
+| 1 | **OOT kernel modules** | `cdx`, `fci`, `auto_bridge` — the drivers that register on the hook sites | `--ask-extras` | ⏸ Blocked (see below) |
+| 2 | **Userspace daemons** | `fmc` (FMan configurator), `cmm` (conn-track/manip), `dpa_app` — XML policy → silicon | `--ask-extras` | ⏸ Blocked (same reason) |
+| 3 | **xtables extensions** | `libxt_QOSMARK.so`, `libxt_QOSCONNMARK.so` — netfilter match/target plugins | `--ask-extras` | 🟡 Planned |
+| 4 | **Patched `iptables`** | iptables source rebuild carrying the QOSMARK/QOSCONNMARK extensions | `--ask-extras` | 🟡 Planned |
+| 5 | **Patched `ppp` + `rp-pppoe`** | PPP ifindex fix + rp-pppoe CMM relay patches for PPPoE fast-path | `--ask-extras` | 🟡 Planned |
+
+Legend: ✅ built and released · 🟡 script scaffolded, awaiting implementation ·
+⏸ precondition blocked.
+
+### What `--ask-extras` runs
+
+Pipeline step 8b. After a successful kernel build, each extra is attempted
+in sequence under `run_step_softfail`: a failure in one layer does not
+block the others or the kernel `.debs`. The summary reports per-layer
+status (`built`, `skipped (precondition)`, `failed`). Philosophy: ship
+what builds, flag what doesn't, never lose the kernel over a userspace bug.
+
+### Layer 1/2 precondition: NXP linux-lsdk FMan SDK
+
+Layers 1 and 2 include the upstream ASK Makefile line
+
+```make
+include $(srctree)/drivers/net/ethernet/freescale/sdk_fman/ncsw_config.mk
+```
+
+`ncsw_config.mk` belongs to the **NXP linux-lsdk FMan SDK subtree** — a
+proprietary overlay NXP historically shipped separately on top of
+mainline. The 6.6 reference tree (`mihakralj/ask-ls1046a-6.6`) bundles
+only a 4-file stub of `sdk_fman/` and does **not** include that file; none
+of the ASK upstream branches (`master`, `mono-patched`, `mono-patched-openwrt`,
+`mt-6.12.y`) contain it either.
+
+`build-ask-modules.sh` detects the missing SDK up-front and exits 0 with
+a clear diagnostic, rather than failing mid-compile. Pipeline summary
+reports `ask-modules: skipped (NXP FMan SDK not layered — see build log)`.
+
+To enable layers 1 and 2: obtain the NXP linux-lsdk `sdk_fman/` subtree
+and install it under `release/patches/kernel/sdk-sources/` so that
+`apply-to-tree.sh` copies it into the kernel tree alongside the existing
+`sdk_dpaa/` stub. Once `ncsw_config.mk` is present, the precondition gate
+opens automatically.
+
+### Layers 3/4/5: independent
+
+xtables extensions, the patched iptables rebuild, and the patched
+ppp/rp-pppoe rebuilds all consume patches from `work/upstream.git`
+(`patches/iptables/`, `patches/ppp/`, `patches/rp-pppoe/`) applied to
+Debian source packages. They do not depend on the FMan SDK and will
+build on any runner with the Debian build toolchain available.
 
 ## Quick start
 
@@ -208,11 +279,15 @@ apt install -y \
 # air-gapped / zero-change build from committed release/
 ./scripts/run-pipeline.sh --skip-fetch --no-derive --build
 
-# the full monty: fetch, derive, verify, publish source, build, publish binaries
-./scripts/run-pipeline.sh --publish --build --release-binaries
+# kernel .debs + all ASK layer .debs that their preconditions permit
+./scripts/run-pipeline.sh --skip-fetch --no-derive --ask-extras
+
+# the full monty: fetch, derive, verify, publish source, build (all layers),
+# publish binaries
+./scripts/run-pipeline.sh --publish --ask-extras --release-binaries
 
 # see what would happen without touching anything
-./scripts/run-pipeline.sh --build --release-binaries --dry-run
+./scripts/run-pipeline.sh --ask-extras --release-binaries --dry-run
 ```
 
 ### When something's wrong
