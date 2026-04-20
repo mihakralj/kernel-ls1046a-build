@@ -116,6 +116,7 @@ and the last thing you want is a monolith.
 | `apply-to-tree.sh` | kernel tree + source fallback | kernel tree with SDK copied, patch applied, `.ask-applied` marker | 0 / 1 |
 | `build-kernel.sh` | ASK-applied tree | `work/build/*.deb` + `build.log` | 0 / 1 |
 | `build-ask-modules.sh` | ASK-applied tree + `work/upstream.git/` | `work/build/ask-modules-*.deb` (cdx/fci/auto_bridge OOT `.ko`s) | 0 built **or** skipped (SDK precondition), 1 fail |
+| `build-ask-iptables.sh` | Debian `iptables` source + `work/upstream.git/` | `work/build/iptables_*+ask*_arm64.deb` (+ `libxtables12`, `libip[46]tc2`, `iptables-dev`) with QOSMARK/QOSCONNMARK | 0 / 1 / 2 (patch fails to apply) |
 | `publish-binaries.sh` | `work/build/` + `release/manifest.json` | GitHub Release tagged `kernel-<ver>-askN` | 0 / 1 |
 | `run-pipeline.sh` | all of the above | orchestrated run + summary | 0 ok, 1 health fail, 2 T2-no-derive, 3 needs-review, 4 build fail, 5 publish-bin fail |
 | `common.sh` | n/a (sourced) | helpers: classify, split, fetch-state | n/a |
@@ -208,12 +209,18 @@ behind a feature flag.
 | 0 | **Kernel image** (always) | `linux-image-*`, `linux-headers-*`, `linux-libc-dev`, debug — ASK hooks compiled in | *(default)* | ✅ Shipping |
 | 1 | **OOT kernel modules** | `cdx`, `fci`, `auto_bridge` — the drivers that register on the hook sites | `--ask-extras` | ⏸ Blocked (see below) |
 | 2 | **Userspace daemons** | `fmc` (FMan configurator), `cmm` (conn-track/manip), `dpa_app` — XML policy → silicon | `--ask-extras` | ⏸ Blocked (same reason) |
-| 3 | **xtables extensions** | `libxt_QOSMARK.so`, `libxt_QOSCONNMARK.so` — netfilter match/target plugins | `--ask-extras` | 🟡 Planned |
-| 4 | **Patched `iptables`** | iptables source rebuild carrying the QOSMARK/QOSCONNMARK extensions | `--ask-extras` | 🟡 Planned |
+| 3+4 | **Patched `iptables` + xtables plugins** | Single Debian source rebuild: patched iptables binaries **and** `libxt_QOSMARK.so`, `libxt_QOSCONNMARK.so` | `--ask-extras` | 🟢 Script implemented — pending first green CI run |
 | 5 | **Patched `ppp` + `rp-pppoe`** | PPP ifindex fix + rp-pppoe CMM relay patches for PPPoE fast-path | `--ask-extras` | 🟡 Planned |
 
-Legend: ✅ built and released · 🟡 script scaffolded, awaiting implementation ·
-⏸ precondition blocked.
+Legend: ✅ built and released · 🟢 implemented (CI verification pending) ·
+🟡 planned · ⏸ precondition blocked.
+
+> Layers 3 and 4 collapse into a single Debian source rebuild because the
+> upstream ASK patch creates exactly the same set of new files needed by
+> both: four new `extensions/libxt_{qos,QOS}{mark,connmark}.c` and their
+> four headers. Building the Debian `iptables` source package with that
+> patch applied produces the patched binary **and** the four `.so`
+> extensions in one coherent, conflict-free set of `.debs`.
 
 ### What `--ask-extras` runs
 
@@ -250,11 +257,22 @@ opens automatically.
 
 ### Layers 3/4/5: independent
 
-xtables extensions, the patched iptables rebuild, and the patched
-ppp/rp-pppoe rebuilds all consume patches from `work/upstream.git`
-(`patches/iptables/`, `patches/ppp/`, `patches/rp-pppoe/`) applied to
-Debian source packages. They do not depend on the FMan SDK and will
-build on any runner with the Debian build toolchain available.
+The patched iptables rebuild (which covers both xtables plugins and the
+iptables binary) and the pending patched `ppp` / `rp-pppoe` rebuilds
+consume patches from `work/upstream.git` (`patches/iptables/`,
+`patches/ppp/`, `patches/rp-pppoe/`) applied to Debian source packages.
+They do not depend on the FMan SDK and build on any runner with the
+Debian build toolchain available.
+
+`scripts/build-ask-iptables.sh` implements layers 3+4: it runs
+`apt-get source iptables`, extracts
+`patches/iptables/001-qosmark-extensions.patch` from the upstream
+mirror, registers it in `debian/patches/series`, bumps the Debian
+version with an `+ask1` suffix, and cross-builds for `arm64` via
+`dpkg-buildpackage --host-arch arm64 --build=binary`. Output: the
+standard Debian iptables `.deb` set (`iptables`, `libxtables12`,
+`libip4tc2`, `libip6tc2`, `iptables-dev`) rebuilt with the QOSMARK
+extensions baked in.
 
 ## Quick start
 

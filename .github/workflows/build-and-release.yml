@@ -49,13 +49,26 @@ jobs:
 
       - name: Install toolchain and build deps
         run: |
+          # Enable deb-src (commented out by default on ubuntu-latest)
+          # so `apt-get source iptables` works for build-ask-iptables.sh.
+          if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then
+            # Newer deb822 format (Ubuntu 24.04+). Ensure Types include deb-src.
+            sudo sed -i 's/^Types: deb$/Types: deb deb-src/' \
+              /etc/apt/sources.list.d/*.sources || true
+          fi
+          sudo sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list || true
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             gcc-aarch64-linux-gnu \
-            build-essential debhelper \
+            build-essential debhelper devscripts quilt \
             libssl-dev bc flex bison libelf-dev \
-            fakeroot kmod dpkg-dev rsync cpio \
+            fakeroot kmod dpkg-dev dpkg-cross rsync cpio patch \
             jq curl ca-certificates
+          # Register arm64 as a foreign architecture so :arm64 dev packages
+          # (libmnl-dev:arm64, libnfnetlink-dev:arm64, etc.) are installable
+          # for the cross-build of iptables.
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update -qq
 
       - name: Preflight (environment report)
         # Dump everything useful for post-mortem into a single collapsible

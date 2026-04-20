@@ -264,11 +264,14 @@ fi
 # kernel .debs. The intent is progressive rollout — we ship what builds and
 # flag what doesn't, so a single broken layer doesn't lose the whole release.
 ASK_MODULES_STATUS="skipped"
+ASK_IPTABLES_STATUS="skipped"
 if (( DO_ASK_EXTRAS )); then
     if [[ "$BUILD_STATUS" != "built"* ]]; then
         warn "--ask-extras: refusing (kernel build did not succeed)"
         ASK_MODULES_STATUS="refused (kernel build failed)"
+        ASK_IPTABLES_STATUS="refused (kernel build failed)"
     else
+        # Layer 1 + 2: OOT kernel modules (currently blocked on NXP FMan SDK)
         run_step_softfail 1 "build ASK OOT modules (cdx/fci/auto_bridge)" \
             "$SCRIPTS_DIR/build-ask-modules.sh"
         if (( LAST_EXIT == 0 )); then
@@ -282,6 +285,20 @@ if (( DO_ASK_EXTRAS )); then
             fi
         else
             ASK_MODULES_STATUS="build-ask-modules failed"
+        fi
+
+        # Layer 3 + 4: patched iptables + QOSMARK/QOSCONNMARK xtables plugins
+        # (Single Debian source rebuild; independent of FMan SDK.)
+        run_step_softfail 1 "build patched iptables (+libxt_QOSMARK/QOSCONNMARK)" \
+            "$SCRIPTS_DIR/build-ask-iptables.sh"
+        if (( LAST_EXIT == 0 )); then
+            if compgen -G "$WORK_DIR/build/iptables_*+ask*_arm64.deb" >/dev/null; then
+                ASK_IPTABLES_STATUS="built (iptables +ask*.deb)"
+            else
+                ASK_IPTABLES_STATUS="script succeeded but no .deb produced (investigate)"
+            fi
+        else
+            ASK_IPTABLES_STATUS="build-ask-iptables failed"
         fi
     fi
 fi
@@ -331,6 +348,7 @@ fi
 printf '   publish-release: %s\n' "$PUBLISH_STATUS"
 printf '   build-kernel:    %s\n' "$BUILD_STATUS"
 printf '   ask-modules:     %s\n' "$ASK_MODULES_STATUS"
+printf '   ask-iptables:    %s\n' "$ASK_IPTABLES_STATUS"
 printf '   release-bin:     %s\n' "$RELEASE_BIN_STATUS"
 
 # ── Exit code policy ────────────────────────────────────────────────────
