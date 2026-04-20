@@ -22,6 +22,8 @@
 #   ./scripts/run-pipeline.sh --publish       # on status=ok, promote work/derived/
 #                                             # into the committed release/ tree
 #   ./scripts/run-pipeline.sh --build         # apply-to-tree + build-kernel (.deb)
+#   ./scripts/run-pipeline.sh --ask-extras    # + build-ask-modules (OOT cdx/fci/auto_bridge)
+#                                             #   (implies --build; requires kernel build first)
 #   ./scripts/run-pipeline.sh --release-binaries # upload work/build/*.deb to GitHub Releases
 #   ./scripts/run-pipeline.sh --dry-run       # print steps, do not execute
 #
@@ -45,6 +47,7 @@ DO_DERIVE=1
 DO_HEALTH=1
 DO_PUBLISH=0
 DO_BUILD=0
+DO_ASK_EXTRAS=0
 DO_RELEASE_BIN=0
 DRY_RUN=0
 
@@ -55,6 +58,7 @@ while (( $# )); do
         --no-health)         DO_HEALTH=0;      shift ;;
         --publish)           DO_PUBLISH=1;     shift ;;
         --build)             DO_BUILD=1;       shift ;;
+        --ask-extras)        DO_ASK_EXTRAS=1; DO_BUILD=1; shift ;;
         --release-binaries)  DO_RELEASE_BIN=1; shift ;;
         --dry-run)           DRY_RUN=1;        shift ;;
         -h|--help)           sed -n '1,36p' "$0"; exit 0 ;;
@@ -125,6 +129,7 @@ ok "ASK lts_6.6_ls1046a — pipeline starting"
 (( DO_HEALTH  )) || dim "   --no-health:  patch-health will be skipped"
 (( DO_PUBLISH )) && dim "   --publish:    release/ will be refreshed if status=ok"
 (( DO_BUILD   )) && dim "   --build:      apply-to-tree + build-kernel will run"
+(( DO_ASK_EXTRAS )) && dim "   --ask-extras: + build-ask-modules (cdx/fci/auto_bridge OOT .debs)"
 (( DO_RELEASE_BIN )) && dim "   --release-binaries: .debs → GitHub Release"
 (( DRY_RUN    )) && warn "DRY-RUN: no commands will actually execute"
 
@@ -253,6 +258,27 @@ if (( DO_BUILD )); then
     fi
 fi
 
+# ── 8b. ASK extras: out-of-tree modules, userspace, xtables (optional) ──
+# Only runs on --ask-extras AND when the kernel build succeeded. Each sub-
+# step is softfail: a failure in one extra does not block the others or the
+# kernel .debs. The intent is progressive rollout — we ship what builds and
+# flag what doesn't, so a single broken layer doesn't lose the whole release.
+ASK_MODULES_STATUS="skipped"
+if (( DO_ASK_EXTRAS )); then
+    if [[ "$BUILD_STATUS" != "built"* ]]; then
+        warn "--ask-extras: refusing (kernel build did not succeed)"
+        ASK_MODULES_STATUS="refused (kernel build failed)"
+    else
+        run_step_softfail 1 "build ASK OOT modules (cdx/fci/auto_bridge)" \
+            "$SCRIPTS_DIR/build-ask-modules.sh"
+        if (( LAST_EXIT == 0 )); then
+            ASK_MODULES_STATUS="built (ask-modules-*.deb)"
+        else
+            ASK_MODULES_STATUS="build-ask-modules failed"
+        fi
+    fi
+fi
+
 # ── 9. Release binaries (optional) ──────────────────────────────────────
 # Only runs on --release-binaries AND when --build succeeded. Uploads
 # work/build/*.deb + SHA256SUMS + manifest.json to a GitHub Release tagged
@@ -297,6 +323,7 @@ else
 fi
 printf '   publish-release: %s\n' "$PUBLISH_STATUS"
 printf '   build-kernel:    %s\n' "$BUILD_STATUS"
+printf '   ask-modules:     %s\n' "$ASK_MODULES_STATUS"
 printf '   release-bin:     %s\n' "$RELEASE_BIN_STATUS"
 
 # ── Exit code policy ────────────────────────────────────────────────────

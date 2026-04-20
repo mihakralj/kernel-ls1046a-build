@@ -105,9 +105,9 @@ jobs:
           # from kernel.org. --no-derive uses committed release/ as the source
           # of truth (matches what a downstream consumer would do).
           if [[ -n "$KVER" ]]; then
-              ./scripts/run-pipeline.sh "$KVER" --no-derive --build
+              ./scripts/run-pipeline.sh "$KVER" --no-derive --build --ask-extras
           else
-              ./scripts/run-pipeline.sh --no-derive --build
+              ./scripts/run-pipeline.sh --no-derive --build --ask-extras
           fi
 
       - name: Collect artefacts
