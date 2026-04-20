@@ -15,11 +15,22 @@ source "$(dirname "$0")/common.sh"
 
 need curl tar jq
 
-VERSION="${1:-}"
+# Priority order for the target kernel version:
+#   1. positional arg ($1)                  — explicit CLI override
+#   2. KERNEL_VERSION env / versions.lock    — persistent pin
+#   3. kernel.org latest 6.6.y               — floating
+if [[ -f "$REPO_ROOT/versions.lock" ]]; then
+    # shellcheck disable=SC1091
+    source "$REPO_ROOT/versions.lock"
+fi
+
+VERSION="${1:-${KERNEL_VERSION:-}}"
 if [[ -z "$VERSION" ]]; then
     info "Resolving latest linux-6.6.y from kernel.org…"
     VERSION="$(latest_6_6_y)"
     [[ -n "$VERSION" ]] || err "Could not resolve latest 6.6.y version"
+else
+    dim "Using pinned kernel version: $VERSION"
 fi
 
 # Validate shape
