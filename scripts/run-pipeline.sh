@@ -265,11 +265,13 @@ fi
 # flag what doesn't, so a single broken layer doesn't lose the whole release.
 ASK_MODULES_STATUS="skipped"
 ASK_IPTABLES_STATUS="skipped"
+ASK_PPP_STATUS="skipped"
 if (( DO_ASK_EXTRAS )); then
     if [[ "$BUILD_STATUS" != "built"* ]]; then
         warn "--ask-extras: refusing (kernel build did not succeed)"
         ASK_MODULES_STATUS="refused (kernel build failed)"
         ASK_IPTABLES_STATUS="refused (kernel build failed)"
+        ASK_PPP_STATUS="refused (kernel build failed)"
     else
         # Layer 1 + 2: OOT kernel modules (currently blocked on NXP FMan SDK)
         run_step_softfail 1 "build ASK OOT modules (cdx/fci/auto_bridge)" \
@@ -299,6 +301,30 @@ if (( DO_ASK_EXTRAS )); then
             fi
         else
             ASK_IPTABLES_STATUS="build-ask-iptables failed"
+        fi
+
+        # Layer 5: ppp + rp-pppoe NXP/ASK patches (PPPoE offload / CMM relay)
+        # Two independent Debian source rebuilds; partial success is tolerated.
+        # Exit 2 = patch rejected (hard failure); exit 1 = all builds failed.
+        run_step_softfail 2 "build patched ppp + rp-pppoe (NXP ASK offload/CMM)" \
+            "$SCRIPTS_DIR/build-ask-ppp.sh"
+        if (( LAST_EXIT == 0 )); then
+            _ppp_built=0; _pppoe_built=0
+            compgen -G "$WORK_DIR/build/ppp_*+ask*_arm64.deb"    >/dev/null && _ppp_built=1
+            compgen -G "$WORK_DIR/build/pppoe_*+ask*_arm64.deb"  >/dev/null && _pppoe_built=1
+            if (( _ppp_built && _pppoe_built )); then
+                ASK_PPP_STATUS="built (ppp + rp-pppoe)"
+            elif (( _ppp_built )); then
+                ASK_PPP_STATUS="partial (ppp only; rp-pppoe missing)"
+            elif (( _pppoe_built )); then
+                ASK_PPP_STATUS="partial (rp-pppoe only; ppp missing)"
+            else
+                ASK_PPP_STATUS="script succeeded but no .deb produced (investigate)"
+            fi
+        elif (( LAST_EXIT == 2 )); then
+            ASK_PPP_STATUS="patch rejected — manual reconciliation needed"
+        else
+            ASK_PPP_STATUS="build-ask-ppp failed"
         fi
     fi
 fi
@@ -349,6 +375,7 @@ printf '   publish-release: %s\n' "$PUBLISH_STATUS"
 printf '   build-kernel:    %s\n' "$BUILD_STATUS"
 printf '   ask-modules:     %s\n' "$ASK_MODULES_STATUS"
 printf '   ask-iptables:    %s\n' "$ASK_IPTABLES_STATUS"
+printf '   ask-ppp:         %s\n' "$ASK_PPP_STATUS"
 printf '   release-bin:     %s\n' "$RELEASE_BIN_STATUS"
 
 # ── Exit code policy ────────────────────────────────────────────────────

@@ -117,6 +117,7 @@ and the last thing you want is a monolith.
 | `build-kernel.sh` | ASK-applied tree | `work/build/*.deb` + `build.log` | 0 / 1 |
 | `build-ask-modules.sh` | ASK-applied tree + `work/upstream.git/` | `work/build/ask-modules-*.deb` (cdx/fci/auto_bridge OOT `.ko`s) | 0 built **or** skipped (SDK precondition), 1 fail |
 | `build-ask-iptables.sh` | Debian `iptables` source + `work/upstream.git/` | `work/build/iptables_*+ask*_arm64.deb` (+ `libxtables12`, `libip[46]tc2`, `iptables-dev`) with QOSMARK/QOSCONNMARK | 0 / 1 / 2 (patch fails to apply) |
+| `build-ask-ppp.sh` | Debian `ppp` + `rp-pppoe` sources + `patches/{ppp,rp-pppoe}/` | `work/build/ppp_*+ask*_arm64.deb`, `work/build/pppoe_*+ask*_arm64.deb` (NXP ifindex fix, CMM relay) | 0 (any sub-build ok) / 1 (all failed) / 2 (patch rejected) |
 | `publish-binaries.sh` | `work/build/` + `release/manifest.json` | GitHub Release tagged `kernel-<ver>-askN` | 0 / 1 |
 | `run-pipeline.sh` | all of the above | orchestrated run + summary | 0 ok, 1 health fail, 2 T2-no-derive, 3 needs-review, 4 build fail, 5 publish-bin fail |
 | `common.sh` | n/a (sourced) | helpers: classify, split, fetch-state | n/a |
@@ -210,7 +211,7 @@ behind a feature flag.
 | 1 | **OOT kernel modules** | `cdx`, `fci`, `auto_bridge` — the drivers that register on the hook sites | `--ask-extras` | ⏸ Blocked (see below) |
 | 2 | **Userspace daemons** | `fmc` (FMan configurator), `cmm` (conn-track/manip), `dpa_app` — XML policy → silicon | `--ask-extras` | ⏸ Blocked (same reason) |
 | 3+4 | **Patched `iptables` + xtables plugins** | Single Debian source rebuild: patched iptables binaries **and** `libxt_QOSMARK.so`, `libxt_QOSCONNMARK.so` | `--ask-extras` | 🟢 Script implemented — pending first green CI run |
-| 5 | **Patched `ppp` + `rp-pppoe`** | PPP ifindex fix + rp-pppoe CMM relay patches for PPPoE fast-path | `--ask-extras` | 🟡 Planned |
+| 5 | **Patched `ppp` + `rp-pppoe`** | PPP ifindex fix + rp-pppoe CMM relay patches for PPPoE fast-path | `--ask-extras` | 🟢 Script implemented — pending first green CI run |
 
 Legend: ✅ built and released · 🟢 implemented (CI verification pending) ·
 🟡 planned · ⏸ precondition blocked.

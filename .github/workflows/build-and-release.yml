@@ -49,14 +49,21 @@ jobs:
 
       - name: Install toolchain and build deps
         run: |
-          # Enable deb-src (commented out by default on ubuntu-latest)
-          # so `apt-get source iptables` works for build-ask-iptables.sh.
+          set -eux
+          # ── Step 1: enable deb-src so `apt-get source` works ──────────
+          # deb-src is commented out by default on ubuntu-latest. Needed
+          # for build-ask-iptables.sh / build-ask-ppp.sh (`apt-get source`).
           if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then
-            # Newer deb822 format (Ubuntu 24.04+). Ensure Types include deb-src.
+            # Ubuntu 24.04+ deb822 format.
             sudo sed -i 's/^Types: deb$/Types: deb deb-src/' \
               /etc/apt/sources.list.d/*.sources || true
           fi
           sudo sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list || true
+
+          # ── Step 2: install host + cross toolchain ───────────────────
+          # Done before adding arm64 as a foreign arch so apt doesn't try
+          # to fetch arm64 packages from archive.ubuntu.com (which doesn't
+          # carry them — arm64 is on ports.ubuntu.com).
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             gcc-aarch64-linux-gnu \
@@ -64,10 +71,39 @@ jobs:
             libssl-dev bc flex bison libelf-dev \
             fakeroot kmod dpkg-dev dpkg-cross rsync cpio patch \
             jq curl ca-certificates
-          # Register arm64 as a foreign architecture so :arm64 dev packages
-          # (libmnl-dev:arm64, libnfnetlink-dev:arm64, etc.) are installable
-          # for the cross-build of iptables.
+
+          # ── Step 3: add arm64 foreign arch with correct URIs ─────────
+          # ports.ubuntu.com is the canonical mirror for non-amd64/i386
+          # Ubuntu architectures. Restrict existing sources to amd64 so
+          # apt doesn't fail with 404s trying to pull arm64 Packages files
+          # from the amd64 archive, then add arm64 sources pointing at
+          # ports.ubuntu.com.
           sudo dpkg --add-architecture arm64
+
+          if ls /etc/apt/sources.list.d/ubuntu.sources >/dev/null 2>&1; then
+            # deb822 format: pin the default entries to amd64 only, then
+            # drop in a parallel arm64 entry pointing at ports.
+            sudo sed -i '/^Types: deb/a Architectures: amd64' \
+              /etc/apt/sources.list.d/ubuntu.sources
+            . /etc/os-release
+            cat <<EOF | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.sources >/dev/null
+          Types: deb
+          URIs: http://ports.ubuntu.com/ubuntu-ports
+          Suites: ${UBUNTU_CODENAME} ${UBUNTU_CODENAME}-updates ${UBUNTU_CODENAME}-backports ${UBUNTU_CODENAME}-security
+          Components: main restricted universe multiverse
+          Architectures: arm64
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+          elif [ -f /etc/apt/sources.list ]; then
+            # Legacy one-line format.
+            sudo sed -i 's|^deb http|deb [arch=amd64] http|g; s|^deb-src http|deb-src [arch=amd64] http|g' \
+              /etc/apt/sources.list
+            . /etc/os-release
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${UBUNTU_CODENAME} main restricted universe multiverse" \
+              | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list >/dev/null
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${UBUNTU_CODENAME}-updates main restricted universe multiverse" \
+              | sudo tee -a /etc/apt/sources.list.d/ubuntu-arm64.list >/dev/null
+          fi
           sudo apt-get update -qq
 
       - name: Preflight (environment report)
