@@ -67,7 +67,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential debhelper devscripts quilt dpkg-dev \
             libssl-dev bc flex bison libelf-dev \
-            fakeroot kmod rsync cpio patch \
+            fakeroot kmod rsync cpio patch patchutils \
             jq curl ca-certificates \
             libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev \
             libpam0g-dev libpcap0.8-dev libsystemd-dev zlib1g-dev ppp-dev
