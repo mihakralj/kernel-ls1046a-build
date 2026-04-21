@@ -73,7 +73,24 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
 mkdir -p "$STAGE/patches/kernel"
-cp -r "$SRC/patches/kernel/." "$STAGE/patches/kernel/"
+
+# patches/kernel/003-ask-kernel-hooks.patch: the upstream reference repo's
+# patch targets 6.6.y but contains hunks that need surgical fixes for 6.6
+# (e.g. 068299b restored tabs, 620cf05 fixed hunk counts, d9e71aa added
+# missing CPE_FAST_PATH guards in br_vlan.c). `derive-patches.sh` copies
+# the pristine reference through verbatim — which overwrites those fixes.
+# We therefore PRESERVE any existing release/patches/ tree. The reference
+# copy only seeds release/ when the directory does not yet exist.
+if [[ -d "$DST/patches/kernel" ]] && compgen -G "$DST/patches/kernel/*.patch" > /dev/null; then
+    dim "preserving existing release/patches/kernel/ (hand-tuned for 6.6.y)"
+    cp -r "$DST/patches/kernel/." "$STAGE/patches/kernel/"
+    # SDK source drops are NOT hand-tuned — always refresh from derived.
+    rm -rf "$STAGE/patches/kernel/sdk-sources"
+    [[ -d "$SRC/patches/kernel/sdk-sources" ]] \
+        && cp -r "$SRC/patches/kernel/sdk-sources" "$STAGE/patches/kernel/"
+else
+    cp -r "$SRC/patches/kernel/." "$STAGE/patches/kernel/"
+fi
 
 # ask.config: the reference repo's fragment enables CONFIG_CPE_FAST_PATH +
 # CONFIG_INET_IPSEC_OFFLOAD, but those hooks are incomplete on 6.6.y and
