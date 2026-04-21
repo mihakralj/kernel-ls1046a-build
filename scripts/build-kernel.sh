@@ -31,7 +31,15 @@ ARCH="${ARCH:-arm64}"
 TARGET="bindeb-pkg"
 KDIR_ARG=""
 JOBS="$(nproc_any)"
-LOCALVERSION="${LOCALVERSION:--ask}"
+# LOCALVERSION is baked into the kernel release string and the resulting
+# linux-image package name. We use "-vyos" so the kernel is a drop-in
+# replacement for VyOS's own kernel: the package name, module path
+# (/lib/modules/<KVER>-vyos/), `uname -r`, and all out-of-tree module
+# Depends: linux-image-<KVER>-vyos already ship throughout the VyOS
+# package ecosystem (jool, nat-rtsp, openvpn-dco, vyos-ipt-netflow, …).
+# ASK identity is preserved in the Debian package *version* (e.g.
+# 6.6.135-ask5), the Git tag (kernel-6.6.135-askN), and release/manifest.json.
+LOCALVERSION="${LOCALVERSION:--vyos}"
 KDEB_PKGVERSION="${KDEB_PKGVERSION:-}"
 
 while (( $# )); do

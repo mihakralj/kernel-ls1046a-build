@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # build-ask-modules.sh — natively build ASK out-of-tree kernel modules
 # (cdx, fci, auto_bridge) against an already-built kernel tree, and pack the
-# three .ko files into a single Debian package: ask-modules-<KVER>-ask.
+# three .ko files into a single Debian package: ask-modules-<KVER>-vyos.
 #
 # Prerequisites:
 #   - scripts/build-kernel.sh has already run (so Module.symvers exists under
@@ -19,7 +19,7 @@
 #   ./scripts/build-ask-modules.sh --platform LS1046A  # default; see Makefile
 #
 # Outputs:
-#   work/build/ask-modules-<KVER>-ask_<KVER>-1_arm64.deb
+#   work/build/ask-modules-<KVER>-vyos_<KVER>-1_arm64.deb
 #   work/ask-oot/build/{cdx,fci,auto_bridge}.ko  (intermediate, stripped)
 #
 # Exit codes:
@@ -68,11 +68,12 @@ fi
 
 KVER=$(awk '/^VERSION/{v=$3} /^PATCHLEVEL/{p=$3} /^SUBLEVEL/{s=$3} END{print v"."p"."s}' "$KDIR/Makefile")
 
-# The in-tree kernel build produces modules with release string "<KVER>-ask"
-# (LOCALVERSION=-ask from build-kernel.sh). The OOT modules must match that
-# exact release string; the kernel tree itself encodes that via its own
-# CONFIG_LOCALVERSION / localversion* files.
-KRELEASE="${KVER}-ask"
+# The in-tree kernel build produces modules with release string "<KVER>-vyos"
+# (LOCALVERSION=-vyos from build-kernel.sh — chosen so the kernel is a
+# drop-in replacement for VyOS's own kernel). The OOT modules must match
+# that exact release string; the kernel tree itself encodes that via its
+# own CONFIG_LOCALVERSION / localversion* files.
+KRELEASE="${KVER}-vyos"
 
 # ── Resolve ASK source tree ─────────────────────────────────────────────
 MIRROR="$WORK_DIR/upstream.git"
