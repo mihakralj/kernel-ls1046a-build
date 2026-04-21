@@ -126,32 +126,34 @@ sanitise_path() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
 #   touched, named "<sanitised-path>.chunk", plus a manifest "_files".
 #   Strips `index aaa..bbb` blob-SHA lines (these change every kernel bump
 #   even when hunks are identical, and would produce false-positive drift).
+#
+# Implementation: lsdiff + filterdiff from patchutils. This replaces a
+# hand-rolled awk parser that did not correctly handle binary diffs, mode
+# changes ("new file mode 100755"), rename-detected blocks ("rename from/
+# rename to"), or "GIT binary patch" sections. patchutils is the reference
+# C implementation Debian/Fedora maintainers have used for 20+ years.
+#
+# Requires: lsdiff, filterdiff (package: patchutils).
 split_patch_per_file() {
     local infile="$1" outdir="$2"
     mkdir -p "$outdir"
-    awk -v outdir="$outdir" '
-        function flush() {
-            if (path != "") {
-                safe = path
-                gsub(/[^A-Za-z0-9._-]/, "_", safe)
-                chunkfile = outdir "/" safe ".chunk"
-                print buf > chunkfile
-                close(chunkfile)
-                print path >> (outdir "/_files")
-                buf = ""
-            }
-        }
-        /^diff --git a\/[^ ]+ b\/[^ ]+/ {
-            flush()
-            sub(/^diff --git a\/[^ ]+ b\//, "")
-            path = $0
-            buf = "diff --git a/" path " b/" path
-            next
-        }
-        /^index [0-9a-f]+\.\.[0-9a-f]+/ { next }   # skip blob-SHA noise
-        { buf = buf "\n" $0 }
-        END { flush() }
-    ' "$infile"
+    : > "$outdir/_files"
+    # lsdiff --strip=1 lists the b-side path of each diff-git block once.
+    lsdiff --strip=1 "$infile" | while IFS= read -r path; do
+        [[ -z "$path" ]] && continue
+        local safe
+        safe=$(sanitise_path "$path")
+        # filterdiff matches -i globs against the RAW patch headers, i.e. the
+        # full "a/<path>" / "b/<path>" form. Both sides are supplied so that
+        # renames and add/delete blocks (where one side is /dev/null) still
+        # match. Using "*/<path>" would over-match subpaths (e.g. "Makefile"
+        # would match every "*/Makefile"). Strip `index aaa..bbb` blob-SHA
+        # lines to avoid false-positive drift when the upstream tree re-hashes.
+        filterdiff -i "a/$path" -i "b/$path" "$infile" \
+            | grep -v '^index [0-9a-f]\+\.\.[0-9a-f]\+' \
+            > "$outdir/$safe.chunk"
+        echo "$path" >> "$outdir/_files"
+    done
 }
 
 # ── Normalised "old vs new" state tracking for fetchers ────────────────

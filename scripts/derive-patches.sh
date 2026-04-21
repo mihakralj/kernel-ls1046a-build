@@ -34,7 +34,7 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-need git diff awk
+need git diff lsdiff filterdiff
 
 [[ -f "$REPO_ROOT/versions.lock" ]] || err "versions.lock not found at $REPO_ROOT"
 # shellcheck disable=SC1091
