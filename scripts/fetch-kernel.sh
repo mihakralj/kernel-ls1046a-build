@@ -39,7 +39,6 @@ fi
 ok "Target kernel: linux-${VERSION}"
 
 TARBALL="${WORK_DIR}/linux-${VERSION}.tar.xz"
-SIGFILE="${WORK_DIR}/linux-${VERSION}.tar.sign"
 SRCDIR="${WORK_DIR}/linux-${VERSION}"
 URL_BASE="https://cdn.kernel.org/pub/linux/kernel/v6.x"
 
@@ -51,15 +50,6 @@ else
     curl -fL --progress-bar -o "$TARBALL" "${URL_BASE}/linux-${VERSION}.tar.xz" \
         || err "download failed"
     ok "downloaded $(du -h "$TARBALL" | cut -f1)"
-fi
-
-# Optional signature (best-effort; only check if gpg + key available)
-if command -v gpg >/dev/null 2>&1; then
-    if [[ ! -f "$SIGFILE" ]]; then
-        curl -fsL -o "$SIGFILE" "${URL_BASE}/linux-${VERSION}.tar.sign" 2>/dev/null || true
-    fi
-    # Note: we do NOT enforce signature verification here; just make the file
-    # available for anyone who wants to verify manually.
 fi
 
 # ── Extract ─────────────────────────────────────────────────────────────
