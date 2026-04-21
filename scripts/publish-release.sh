@@ -175,7 +175,6 @@ This directory is **managed by scripts/publish-release.sh**. Do not edit by hand
 |---|---|
 | `patches/kernel/001-vyos-*.patch`               | VyOS kernel patches (link_filter, inotify, perf) |
 | `patches/kernel/004-ask-kernel-hooks.patch`     | monolithic ASK kernel patch (DPAA/FMan hooks) |
-| `patches/kernel/005-ask-sdk-kconfig-wiring.patch` | ASK: wires SDK Kconfig/Makefile into parent trees |
 | `patches/kernel/sdk-sources/` | SDK source files to drop into the kernel tree |
 | `ask.config` | kernel config fragment |
 | `manifest.json` | provenance: which reference/upstream SHAs produced these artefacts |

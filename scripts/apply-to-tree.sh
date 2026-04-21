@@ -8,7 +8,6 @@
 #        002-vyos-inotify-stackable-filesystems.patch   (VyOS: inotify on overlayfs)
 #        003-vyos-build-linux-perf-package.patch        (VyOS: linux-perf packaging)
 #        004-ask-kernel-hooks.patch                     (ASK: DPAA/FMan hooks)
-#        005-ask-sdk-kconfig-wiring.patch               (ASK: SDK Kconfig/Makefile wiring)
 #   3. Assembling .config via merge_config.sh chain:
 #        release/vyos-base/arm64/vyos_defconfig   (VyOS arm64 base)
 #      + release/vyos-base/*.config               (VyOS feature snippets)

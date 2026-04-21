@@ -4387,30 +4387,36 @@ index b516dd15113e..58add72fd448 100644
  
  		return 1;
  	}
-@@ -4261,11 +4311,18 @@ static int __net_init xfrm_net_init(struct net *net)
+@@ -4261,11 +4311,22 @@ static int __net_init xfrm_net_init(struct net *net)
  	if (rv < 0)
  		goto out_policy;
  	rv = xfrm_sysctl_init(net);
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
 +
 +	rv = ipsec_flow_init(net);
 +	if (rv < 0)
 +		goto out_ipsec_flow;
++#endif
  	if (rv < 0)
  		goto out_sysctl;
  
  	return 0;
  
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
 +out_ipsec_flow:
 +	ipsec_flow_fini(net);
 +	xfrm_sysctl_fini(net);
++#endif
  out_sysctl:
  	xfrm_policy_fini(net);
  out_policy:
-@@ -4278,6 +4335,7 @@ static int __net_init xfrm_net_init(struct net *net)
+@@ -4278,6 +4339,9 @@ static int __net_init xfrm_net_init(struct net *net)
  
  static void __net_exit xfrm_net_exit(struct net *net)
  {
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
 +	ipsec_flow_fini(net);
++#endif
  	xfrm_sysctl_fini(net);
  	xfrm_policy_fini(net);
  	xfrm_state_fini(net);
