@@ -70,7 +70,9 @@ jobs:
             fakeroot kmod rsync cpio patch patchutils \
             jq curl ca-certificates \
             libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev \
-            libpam0g-dev libpcap0.8-dev libsystemd-dev zlib1g-dev ppp-dev
+            libpam0g-dev libpcap0.8-dev libsystemd-dev zlib1g-dev ppp-dev \
+            libtraceevent-dev libdw-dev libunwind-dev libaudit-dev \
+            libnuma-dev libperl-dev python3-dev libslang2-dev libzstd-dev
 
       - name: Preflight (environment report)
         # Dump everything useful for post-mortem into a single collapsible
