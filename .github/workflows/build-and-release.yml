@@ -106,6 +106,24 @@ jobs:
           fi
           sudo apt-get update -qq
 
+          # ── Step 4: install arm64 dev libs for extras build-deps ─────
+          # iptables, ppp and rp-pppoe source packages declare build-deps
+          # that dpkg-checkbuilddeps enforces before dpkg-buildpackage will
+          # run, even when cross-building. Pull them as :arm64 from ports.
+          # ppp-dev:arm64 lets rp-pppoe build even if our patched ppp build
+          # fails — it'll just use Ubuntu's stock headers.
+          sudo apt-get install -y --no-install-recommends \
+            libmnl-dev:arm64 \
+            libnftnl-dev:arm64 \
+            libnetfilter-conntrack-dev:arm64 \
+            libnfnetlink-dev:arm64 \
+            libpam0g-dev:arm64 \
+            libpcap0.8-dev:arm64 \
+            libssl-dev:arm64 \
+            libsystemd-dev:arm64 \
+            zlib1g-dev:arm64 \
+            ppp-dev:arm64 || true
+
       - name: Preflight (environment report)
         # Dump everything useful for post-mortem into a single collapsible
         # group. Saves ten minutes of "what was the runner again?" later.
