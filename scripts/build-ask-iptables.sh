@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# build-ask-iptables.sh — cross-compile a patched Debian iptables source package
-# for arm64 with the NXP ASK QOSMARK/QOSCONNMARK extensions added.
+# build-ask-iptables.sh — natively build a patched Debian iptables source package
+# on arm64 with the NXP ASK QOSMARK/QOSCONNMARK extensions added.
 #
 # This single script covers both Phase 3 (xtables libxt_QOS*.so extensions)
 # and Phase 4 (patched iptables binary). Upstream ASK does not ship a
@@ -23,9 +23,9 @@
 #   - work/upstream.git/ contains the ASK mirror (with iptables-extensions/
 #     populated at UPSTREAM_BASELINE/UPSTREAM_TARGET).
 #     scripts/fetch-upstream.sh must have run.
-#   - Host has the Debian cross-build toolchain:
-#       dpkg-dev debhelper devscripts dh-autoreconf quilt
-#       gcc-aarch64-linux-gnu + dpkg-cross + arm64 foreign arch
+#   - Host is arm64 with the Debian build toolchain:
+#       build-essential dpkg-dev debhelper devscripts dh-autoreconf quilt
+#       libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev
 #     The CI workflow installs these in its "Install toolchain" step.
 #
 # Pipeline position: after build-ask-modules.sh (independent; xtables
@@ -56,9 +56,6 @@ source "$(dirname "$0")/common.sh"
 # ── Config ──────────────────────────────────────────────────────────────
 DIST="${DIST:-bookworm}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
-# Empty by default → native build (CI runs on an arm64 runner). Export
-# CROSS_COMPILE=aarch64-linux-gnu- only if cross-building from an x86_64 host.
-CROSS_COMPILE="${CROSS_COMPILE:-}"
 REVISION_SUFFIX="${REVISION_SUFFIX:-+ask1}"
 SRC_PKG="iptables"
 
@@ -79,20 +76,20 @@ while (( $# )); do
     case "$1" in
         --dist)    DIST="${2:?--dist needs arg}";          shift 2 ;;
         --arch)    TARGET_ARCH="${2:?--arch needs arg}";   shift 2 ;;
-        --cross)   CROSS_COMPILE="${2:?--cross needs arg}"; shift 2 ;;
         -h|--help) sed -n '1,50p' "$0"; exit 0 ;;
         *)         err "unknown arg: $1" ;;
     esac
 done
 
-need apt-get dpkg-source dpkg-buildpackage git
+need apt-get dpkg-source dpkg-buildpackage git gcc
 
 [[ -f "$REPO_ROOT/versions.lock" ]] || err "versions.lock not found"
 # shellcheck disable=SC1091
 source "$REPO_ROOT/versions.lock"
 
-command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 \
-    || err "compiler missing: ${CROSS_COMPILE:-native }gcc"
+host_arch=$(dpkg --print-architecture)
+[[ "$host_arch" == "$TARGET_ARCH" ]] \
+    || err "this script is arm64-native; host=$host_arch, target=$TARGET_ARCH"
 
 # ── Resolve upstream commit ────────────────────────────────────────────
 MIRROR="$WORK_DIR/upstream.git"
@@ -126,7 +123,7 @@ info "building patched iptables (Debian source rebuild)"
 dim "   source pkg:     $SRC_PKG"
 dim "   patch commit:   ${ASK_SHA:0:12}"
 dim "   target arch:    $TARGET_ARCH"
-dim "   cross:          ${CROSS_COMPILE}gcc"
+dim "   compiler:       $(gcc --version 2>/dev/null | head -1)"
 dim "   revision tag:   $REVISION_SUFFIX"
 dim "   workspace:      $WS"
 dim "   strategy:       copy 8 ASK source files into Debian source tree"
@@ -264,8 +261,8 @@ fi
 dim "   source dir now: $(basename "$SRC_DIR")"
 end_group
 
-# ── Cross-build ─────────────────────────────────────────────────────────
-begin_group "dpkg-buildpackage (cross to $TARGET_ARCH)"
+# ── Native build ────────────────────────────────────────────────────────
+begin_group "dpkg-buildpackage (native $TARGET_ARCH)"
 BUILD_LOG="$WS/build.log"
 info "  target arch: $TARGET_ARCH"
 dim "  log:         $BUILD_LOG"
@@ -273,18 +270,7 @@ set +e
 (
     cd "$SRC_DIR"
     export DEB_BUILD_OPTIONS="nocheck parallel=$(nproc_any)"
-    # Only pass --host-arch when the target differs from the build host.
-    # On a native arm64 runner DEB_HOST_ARCH is already arm64, so forcing
-    # --host-arch would needlessly engage dpkg-cross machinery.
-    build_host_arch=$(dpkg --print-architecture)
-    hostarch_args=()
-    if [[ "$build_host_arch" != "$TARGET_ARCH" ]]; then
-        hostarch_args+=( --host-arch "$TARGET_ARCH" )
-        [[ -f "/etc/dpkg-cross/cross-config.${TARGET_ARCH}" ]] \
-            && export CONFIG_SITE="/etc/dpkg-cross/cross-config.${TARGET_ARCH}"
-    fi
     dpkg-buildpackage \
-        "${hostarch_args[@]}" \
         --build=binary \
         -uc -us \
         2>&1

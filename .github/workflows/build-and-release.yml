@@ -6,7 +6,7 @@ name: build-and-release
 #   - push tag kernel-*        → build the pinned version and upload as a Release
 #
 # The job builds natively on a GitHub-hosted arm64 runner (ubuntu-24.04-arm).
-# No cross toolchain, no foreign-arch apt juggling, no dpkg-cross.
+# The build scripts are arm64-native only; cross-compilation is not supported.
 
 on:
   push:
@@ -62,8 +62,7 @@ jobs:
           sudo apt-get update -qq
 
           # ── Step 2: native compiler + kernel + extras build-deps ─────
-          # Running natively on arm64, so plain `gcc` is the target compiler;
-          # no cross toolchain, no dpkg-cross, no foreign-arch dance. Native
+          # Runner IS arm64, so plain `gcc` is the target compiler. Native
           # dev libs satisfy dpkg-checkbuilddeps for iptables/ppp/rp-pppoe.
           sudo apt-get install -y --no-install-recommends \
             build-essential debhelper devscripts quilt dpkg-dev \

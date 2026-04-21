@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# build-kernel.sh — cross-compile an ASK-ready linux-6.6.y tree for arm64 and
+# build-kernel.sh — natively build an ASK-ready linux-6.6.y tree on arm64 and
 # produce Debian packages (linux-image, linux-headers, linux-libc-dev).
 #
 # Prerequisite: the kernel tree must already be ASK-applied, i.e.
 # `apply-to-tree.sh` has run and left a `.ask-applied` marker.
 #
-# Required host packages (Debian/Ubuntu):
-#   gcc-aarch64-linux-gnu libssl-dev bc flex bison libelf-dev
+# Required host packages (Debian/Ubuntu, arm64):
+#   build-essential libssl-dev bc flex bison libelf-dev
 #   fakeroot kmod dpkg-dev rsync cpio
 #
 # Usage:
@@ -27,9 +27,6 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-# Empty by default → native build (CI runs on an arm64 runner). Export
-# CROSS_COMPILE=aarch64-linux-gnu- only if cross-building from an x86_64 host.
-CROSS_COMPILE="${CROSS_COMPILE:-}"
 ARCH="${ARCH:-arm64}"
 TARGET="bindeb-pkg"
 KDIR_ARG=""
@@ -49,9 +46,10 @@ while (( $# )); do
     esac
 done
 
-need make
-command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 \
-    || err "compiler missing: ${CROSS_COMPILE:-native }gcc"
+need make gcc
+host_arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+[[ "$host_arch" == "arm64" || "$host_arch" == "aarch64" ]] \
+    || err "this build must run on an arm64 host; got $host_arch"
 
 # ── Resolve kernel tree ─────────────────────────────────────────────────
 if [[ -n "$KDIR_ARG" ]]; then
@@ -77,7 +75,7 @@ LOG="$BUILD_DIR/build.log"
 info "building kernel"
 dim "   tree:          $KDIR"
 dim "   version:       linux-$KVER"
-dim "   cross:         ${CROSS_COMPILE}gcc ($($CROSS_COMPILE'gcc' --version 2>/dev/null | head -1))"
+dim "   compiler:      $(gcc --version 2>/dev/null | head -1)"
 dim "   target:        $TARGET"
 dim "   jobs:          -j$JOBS"
 dim "   localversion:  $LOCALVERSION"
@@ -85,7 +83,7 @@ dim "   pkgversion:    $KDEB_PKGVERSION"
 dim "   log:           $LOG"
 
 # ── Build ───────────────────────────────────────────────────────────────
-export ARCH CROSS_COMPILE LOCALVERSION KDEB_PKGVERSION
+export ARCH LOCALVERSION KDEB_PKGVERSION
 START=$(date +%s)
 
 set +e

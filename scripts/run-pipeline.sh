@@ -268,7 +268,7 @@ if (( DO_BUILD )); then
         if (( APPLY_EXIT != 0 )); then
             BUILD_STATUS="apply-to-tree failed"
         else
-            run_step_softfail 1 "cross-compile kernel (build-kernel)" \
+            run_step_softfail 1 "build kernel (build-kernel)" \
                 "$SCRIPTS_DIR/build-kernel.sh"
             BUILD_EXIT=$LAST_EXIT
             if (( BUILD_EXIT != 0 )); then

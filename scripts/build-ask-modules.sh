@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-ask-modules.sh — cross-compile ASK out-of-tree kernel modules
+# build-ask-modules.sh — natively build ASK out-of-tree kernel modules
 # (cdx, fci, auto_bridge) against an already-built kernel tree, and pack the
 # three .ko files into a single Debian package: ask-modules-<KVER>-ask.
 #
@@ -31,9 +31,6 @@ source "$(dirname "$0")/common.sh"
 
 # ── Config ──────────────────────────────────────────────────────────────
 PLATFORM="${PLATFORM:-LS1046A}"
-# Empty by default → native build (CI runs on an arm64 runner). Export
-# CROSS_COMPILE=aarch64-linux-gnu- only if cross-building from an x86_64 host.
-CROSS_COMPILE="${CROSS_COMPILE:-}"
 ARCH="${ARCH:-arm64}"
 KDIR_ARG=""
 
@@ -46,14 +43,15 @@ while (( $# )); do
     esac
 done
 
-need make git dpkg-deb
+need make git dpkg-deb gcc strip objdump objcopy
 
 [[ -f "$REPO_ROOT/versions.lock" ]] || err "versions.lock not found"
 # shellcheck disable=SC1091
 source "$REPO_ROOT/versions.lock"
 
-command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 \
-    || err "compiler missing: ${CROSS_COMPILE:-native }gcc"
+host_arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+[[ "$host_arch" == "arm64" || "$host_arch" == "aarch64" ]] \
+    || err "this build must run on an arm64 host; got $host_arch"
 
 # ── Resolve kernel tree ─────────────────────────────────────────────────
 if [[ -n "$KDIR_ARG" ]]; then
@@ -94,7 +92,7 @@ dim "   kernel tree:  $KDIR"
 dim "   kernel rel:   $KRELEASE"
 dim "   ASK commit:   ${ASK_SHA:0:12}"
 dim "   platform:     $PLATFORM"
-dim "   cross:        ${CROSS_COMPILE}gcc"
+dim "   compiler:     $(gcc --version 2>/dev/null | head -1)"
 
 rm -rf "$SRC_ROOT" "$BUILD_ROOT" "$STAGING"
 mkdir -p "$SRC_ROOT" "$BUILD_ROOT" "$STAGING"
@@ -157,7 +155,6 @@ end_group
 
 COMMON_MAKE=(
     "ARCH=$ARCH"
-    "CROSS_COMPILE=$CROSS_COMPILE"
     "PLATFORM=$PLATFORM"
     "KERNELDIR=$KDIR"
     "KERNEL_SOURCE=$KDIR"
@@ -199,7 +196,7 @@ build_mod() {
     ko=$(find "$dir" -maxdepth 2 -name "${name}.ko" -print -quit)
     [[ -n "$ko" ]] || err "$name build succeeded but ${name}.ko not found in $dir"
     cp -v "$ko" "$BUILD_ROOT/" >/dev/null
-    "${CROSS_COMPILE}strip" --strip-unneeded "$BUILD_ROOT/${name}.ko"
+    strip --strip-unneeded "$BUILD_ROOT/${name}.ko"
     ok "    → $(basename "$ko") ($(du -h "$BUILD_ROOT/${name}.ko" | cut -f1))"
 
     # Merge this module's Module.symvers into the accumulator, if present
@@ -222,10 +219,10 @@ end_group
 begin_group "verify module vermagic matches kernel"
 vermagic_ok=1
 for m in cdx fci auto_bridge; do
-    vm=$("${CROSS_COMPILE}objdump" -t "$BUILD_ROOT/${m}.ko" 2>/dev/null \
+    vm=$(objdump -t "$BUILD_ROOT/${m}.ko" 2>/dev/null \
         | grep -oE '__module_depends|__versions' | head -1 || true)
     # Extract vermagic string from the .modinfo section
-    vm=$("${CROSS_COMPILE}objcopy" --dump-section .modinfo=/dev/stdout "$BUILD_ROOT/${m}.ko" 2>/dev/null \
+    vm=$(objcopy --dump-section .modinfo=/dev/stdout "$BUILD_ROOT/${m}.ko" 2>/dev/null \
         | tr '\0' '\n' | grep '^vermagic=' | head -1 | cut -d= -f2-)
     if [[ -z "$vm" ]]; then
         warn "  $m: could not extract vermagic"

@@ -122,7 +122,7 @@ NOTES="$STAGE/.release-notes.md"
 {
     echo "# ASK kernel $KVER"
     echo
-    echo "Cross-compiled linux-$KVER for arm64 (NXP LS1046A) with the ASK fast-path patch set."
+    echo "Natively built linux-$KVER for arm64 (NXP LS1046A) with the ASK fast-path patch set."
     echo
     echo "## Provenance"
     echo

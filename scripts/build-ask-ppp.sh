@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# build-ask-ppp.sh — cross-compile patched ppp and rp-pppoe Debian source
-# packages for arm64 with the NXP ASK PPPoE fast-path patches applied.
+# build-ask-ppp.sh — natively build patched ppp and rp-pppoe Debian source
+# packages on arm64 with the NXP ASK PPPoE fast-path patches applied.
 #
 # This single script covers Phase 5 (both packages). Each sub-build is
 # independent: if ppp fails, rp-pppoe is still attempted, and vice versa.
@@ -13,10 +13,9 @@
 #
 # Prerequisites:
 #   - work/upstream.git/ exists (scripts/fetch-upstream.sh ran)
-#   - Host has the Debian cross-build toolchain, same set as
-#     build-ask-iptables.sh: dpkg-dev, debhelper, devscripts, quilt,
-#     dpkg-cross, gcc-aarch64-linux-gnu, and deb-src enabled.
-#   - arm64 registered as a foreign architecture (dpkg --add-architecture arm64).
+#   - Host is arm64 with the Debian build toolchain:
+#     dpkg-dev, debhelper, devscripts, quilt, libpcap0.8-dev,
+#     libpam0g-dev, libssl-dev, and deb-src enabled.
 #
 # Pipeline position: after build-ask-iptables.sh (independent; runs as
 # step 8b layer 3 under --ask-extras).
@@ -44,9 +43,6 @@ source "$(dirname "$0")/common.sh"
 # ── Config ──────────────────────────────────────────────────────────────
 DIST="${DIST:-bookworm}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
-# Empty by default → native build (CI runs on an arm64 runner). Export
-# CROSS_COMPILE=aarch64-linux-gnu- only if cross-building from an x86_64 host.
-CROSS_COMPILE="${CROSS_COMPILE:-}"
 REVISION_SUFFIX="${REVISION_SUFFIX:-+ask1}"
 ONLY=""
 
@@ -54,21 +50,21 @@ while (( $# )); do
     case "$1" in
         --dist)    DIST="${2:?--dist needs arg}";          shift 2 ;;
         --arch)    TARGET_ARCH="${2:?--arch needs arg}";   shift 2 ;;
-        --cross)   CROSS_COMPILE="${2:?--cross needs arg}"; shift 2 ;;
         --only)    ONLY="${2:?--only needs arg}";          shift 2 ;;
         -h|--help) sed -n '1,42p' "$0"; exit 0 ;;
         *)         err "unknown arg: $1" ;;
     esac
 done
 
-need apt-get dpkg-source dpkg-buildpackage git patch
+need apt-get dpkg-source dpkg-buildpackage git patch gcc
 
 [[ -f "$REPO_ROOT/versions.lock" ]] || err "versions.lock not found"
 # shellcheck disable=SC1091
 source "$REPO_ROOT/versions.lock"
 
-command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 \
-    || err "compiler missing: ${CROSS_COMPILE:-native }gcc"
+host_arch=$(dpkg --print-architecture)
+[[ "$host_arch" == "$TARGET_ARCH" ]] \
+    || err "this script is arm64-native; host=$host_arch, target=$TARGET_ARCH"
 
 # ── Resolve upstream commit ────────────────────────────────────────────
 MIRROR="$WORK_DIR/upstream.git"
@@ -90,7 +86,7 @@ export DEBFULLNAME="${DEBFULLNAME:-ASK LTS 6.6 Autobuilder}"
 info "building patched ppp + rp-pppoe (Debian source rebuilds)"
 dim "   patch commit:   ${ASK_SHA:0:12}"
 dim "   target arch:    $TARGET_ARCH"
-dim "   cross:          ${CROSS_COMPILE}gcc"
+dim "   compiler:       $(gcc --version 2>/dev/null | head -1)"
 dim "   revision tag:   $REVISION_SUFFIX"
 
 # ── Worker: build one source package ────────────────────────────────────
@@ -154,7 +150,7 @@ build_one() {
     #     Skip cleanly (not fail) so the pipeline reports the missing
     #     precondition rather than a confusing C compilation error.
     if [[ "$src_pkg" == "rp-pppoe" ]]; then
-        if ! echo '#include <libcmm.h>' | ${CROSS_COMPILE}gcc -E -x c - >/dev/null 2>&1; then
+        if ! echo '#include <libcmm.h>' | gcc -E -x c - >/dev/null 2>&1; then
             warn "  rp-pppoe: libcmm.h not found — layer 2 (libcmm userspace) absent"
             dim "    the CMM-relay patch requires NXP ASK layer-2 headers;"
             dim "    skipping rp-pppoe until layer 2 is shipped."
@@ -239,21 +235,14 @@ build_one() {
         return 1
     fi
 
-    # 6. Build (native if host arch == target, cross otherwise)
+    # 6. Native build
     local build_log="$sub/build.log"
-    info "  building for $TARGET_ARCH (log: $build_log)"
+    info "  building natively for $TARGET_ARCH (log: $build_log)"
     set +e
     (
         cd "$src_dir"
         export DEB_BUILD_OPTIONS="nocheck parallel=$(nproc_any)"
-        local build_host_arch
-        build_host_arch=$(dpkg --print-architecture)
-        local hostarch_args=()
-        if [[ "$build_host_arch" != "$TARGET_ARCH" ]]; then
-            hostarch_args+=( --host-arch "$TARGET_ARCH" )
-        fi
         dpkg-buildpackage \
-            "${hostarch_args[@]}" \
             --build=binary \
             -uc -us 2>&1
     ) > "$build_log"

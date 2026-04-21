@@ -4,11 +4,11 @@
 
 Mono's NXP [ASK (Application Solutions Kit)][ask-upstream] is a patch set that bolts fast-path networking onto Layerscape SoCs: the DPAA SDK driver stack, netfilter-offload hooks, IPsec crypto-engine plumbing, the works. It targets whichever kernel Mono happened to be building against. Right now that's 6.12.
 
-VyOS 1.5/1.6, Debian stable, and every other downstream that cares about a five-year support window lives on 6.6 LTS kernel. So somebody has to do the translation work. And somebody did: [`ask-ls1046a-6.6`](https://github.com/mihakralj/ask-ls1046a-6.6) is a hand-crafted 6.6-compatible port of ASK, living as a static reference tree. Beautiful. Also frozen in time and detached from a main dev.
+VyOS 1.5/1.6, Debian stable, and every other downstream that cares about a five-year support window lives on 6.6 LTS kernel. So somebody has to do the translation work. And somebody did: [`ask-ls1046a-6.6`](https://github.com/mihakralj/ask-ls1046a-6.6) is a hand-crafted 6.6-compatible port of ASK, living as a static reference tree. Beautiful. Also frozen in time and detached from Mono main ask development tree.
 
 This repo is the engine that keeps that translation honest. It watches the 6.12 upstream for new commits, classifies them, re-derives the 6.6 patch set, verifies the output applies to a fresh kernel tarball, and builds Debian packages for the NXP LS1046A. All of it driven by one entry point.
 
-CI runs natively on GitHub-hosted **arm64** runners (`ubuntu-24.04-arm`), so the kernel and every userspace `.deb` is a straight native compile. No cross toolchain, no foreign-arch apt juggling, no `dpkg-cross`. The scripts still accept `CROSS_COMPILE=` for anyone who wants to build from an x86_64 dev box.
+CI runs natively on GitHub-hosted **arm64** runners (`ubuntu-24.04-arm`), so the kernel and every userspace `.deb` is a straight native compile. No cross toolchain, no foreign-arch apt juggling, no `dpkg-cross` — and none of the scripts support cross-compilation: arm64 host in, arm64 `.deb`s out.
 
 ## Table of contents
 
@@ -34,8 +34,7 @@ lts_6.6_ls1046a/
 └── LICENSE               # GPL-2.0, same as VyOS and mono-ASK
 ```
 
-Three-level split, because mixing source of truth with working scratch is how
-you end up rebuilding the world on every PR review.
+Three-level split, because mixing source of truth with working scratch is how you end up rebuilding the world on every PR review.
 
 | Tier | Directory | Tracked? | Purpose |
 |---|---|---|---|
@@ -81,7 +80,7 @@ is a building block.
      9. publish-binaries.sh  (opt-in) → GitHub Release
 ```
 
-Each step has a purpose, a precondition, and a single responsibility. When something breaks, you know which step did it. When nothing's changed, each step sees its cache and returns in under a second. That part matters: the fetcher contract is exit 0 (unchanged) / exit 10 (changed / new). The orchestrator reads those and builds the summary.
+Each step in the backporting process has a purpose, a precondition, and a single responsibility. When something breaks, you know which step did it. When nothing's changed, each step sees its cache and returns in under a second. That part matters: the fetcher contract is exit 0 (unchanged) / exit 10 (changed / new). The orchestrator reads those and builds the summary.
 
 ### Soft-fail policy for ASK extras (step 8b)
 
@@ -89,9 +88,16 @@ The kernel `.debs` are the load-bearing artefact. The extras (modules, patched i
 
 ### Why this shape
 
-The original question was "what is the right order of calling scripts?" The honest answer: there isn't a linear one. Fetchers are independent. Sync is a gate. Derive is conditional. Health is a verifier. Publish and build are sinks. The pipeline is a DAG with three optional tails.
+The common question is "what is the right order of calling these scripts?" The honest answer: there isn't a linear single order to drive:
 
-`run-pipeline.sh` linearizes it so humans don't have to think, but each script still works on its own. Which matters when you're debugging at 3 AM and the last thing you want is a monolith.
+- Fetchers are independent. 
+- Sync is a gate. 
+- Derive is conditional.
+- Health is a verifier.
+- Publish and build are sinks.
+- The pipeline is a DAG with three optional tails.
+
+`run-pipeline.sh` linearizes it so wet robots don't have to think, but each script still works on its own. Which matters when you're debugging at 3 AM and the last thing you want is a 10k lines long monolith.
 
 ## Scripts, one-liners
 
@@ -116,8 +122,7 @@ The original question was "what is the right order of calling scripts?" The hone
 
 ### Tier classification
 
-`common::classify_path` and `classify_commit` are the single source of truth
-for "what counts as kernel patch work":
+`common::classify_path` and `classify_commit` are the single source of truth for "what counts as kernel patch work":
 
 ```text
 T1 direct-apply   userspace, out-of-tree modules, lib patches
@@ -149,8 +154,7 @@ release/
         └── include/...
 ```
 
-Clone the repo, point `apply-to-tree.sh` at a linux-6.6.y checkout, done.
-No network. No derivation. This is the contract with downstream.
+Clone the repo, point `apply-to-tree.sh` at a linux-6.6.y checkout, done. No network. No derivation. This is the contract with downstream.
 
 ### `work/build/` (ephemeral, consumable)
 
@@ -163,7 +167,7 @@ work/build/
 └── build.log                                       # full compile log
 ```
 
-Built natively on an arm64 runner via `make bindeb-pkg` (or cross-compiled locally with `CROSS_COMPILE=aarch64-linux-gnu-` if you're on an x86_64 dev box — both code paths go through the same scripts). Tested. Stripped of the host-leaking `output_dir` before upload. Gitignored.
+Built natively on an arm64 runner via `make bindeb-pkg`. Tested. Stripped of the host-leaking `output_dir` before upload. Gitignored.
 
 ### GitHub Releases (permanent, consumable)
 
@@ -171,7 +175,7 @@ Tagged `kernel-<kver>-ask<N>`. Attached: the four kernel `.deb`s above plus, whe
 
 ## ASK stack layers
 
-The four kernel `.debs` produced by `build-kernel.sh` cover only what `make bindeb-pkg` emits: the kernel image (with the ASK fast-path hooks compiled in), debug symbols, headers, and libc-dev. Without additional layers, the in-kernel hooks remain **dormant** — every packet still falls through to the Linux slow path because nothing is registered on the hook sites.
+Kernel `.debs` produced by `build-kernel.sh` cover only what `make bindeb-pkg` emits: the kernel image (with the ASK fast-path hooks compiled in), debug symbols, headers, and libc-dev. Without additional layers, the in-kernel hooks remain **dormant** — every packet still falls through to the Linux slow path because nothing is registered on the hook sites.
 
 The full ASK stack is five layers. Each is a separate optional build that produces its own `.deb` (or set of `.deb`s) and is wired into the pipeline behind a feature flag.
 
@@ -208,14 +212,14 @@ To enable layers 1 and 2: obtain the NXP linux-lsdk `sdk_fman/` subtree and inst
 
 ### Layers 3/4/5: independent
 
-The patched iptables rebuild (which covers both xtables plugins and the iptables binary) and the pending patched `ppp` / `rp-pppoe` rebuilds consume patches from `work/upstream.git` (`patches/iptables/`, `patches/ppp/`, `patches/rp-pppoe/`) applied to Debian source packages. They do not depend on the FMan SDK and build on any runner with the Debian build toolchain available.
+The patched iptables rebuild (which covers both xtables plugins and the iptables binary) and the pending patched `ppp` / `rp-pppoe` rebuilds consume patches from `work/upstream.git` (`patches/iptables/`, `patches/ppp/`, `patches/rp-pppoe/`) applied to Debian source packages. They do not depend on the FMan SDK and build on any arm64 host with the Debian build toolchain available.
 
 `scripts/build-ask-iptables.sh` implements layers 3+4. Upstream ASK does **not** ship a `patches/iptables/*.patch`; instead it provides the four new xtables extension sources (`libxt_{qos,QOS}{mark,connmark}.c`) and the matching kernel-UAPI headers under `iptables-extensions/`. The script:
 
 1. `apt-get source iptables` into a clean workspace.
 2. Copies the eight files from the upstream mirror into the Debian source    tree (extensions auto-discover via the Debian `iptables` build).
 3. Synthesises a clean unified diff for provenance, registers it in    `debian/patches/series` for 3.0 (quilt) source format.
-4. `dch --newversion <ver>+ask1` and runs `dpkg-buildpackage --build=binary`    natively (or cross if `DEB_HOST_ARCH != arm64`).
+4. `dch --newversion <ver>+ask1` and runs `dpkg-buildpackage --build=binary`    natively on arm64.
 
 Output: the standard Debian iptables `.deb` set (`iptables`, `libxtables12`, `libip4tc2`, `libip6tc2`, `iptables-dev`) rebuilt with the QOSMARK / QOSCONNMARK extensions baked in.
 
@@ -225,7 +229,7 @@ Output: the standard Debian iptables `.deb` set (`iptables`, `libxtables12`, `li
 
 ### Prerequisites
 
-Running natively on an arm64 host (the CI path):
+The scripts are **arm64-native only**. Run on an arm64 host: a GitHub `ubuntu-24.04-arm` runner, a Raspberry Pi 4/5 on Debian, a Graviton EC2 instance, the LS1046A board itself. Cross-compilation from x86_64 is not supported.
 
 ```bash
 apt install -y \
@@ -235,20 +239,6 @@ apt install -y \
   libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev \
   libpam0g-dev libpcap0.8-dev libsystemd-dev zlib1g-dev ppp-dev \
   git jq curl patch gh
-```
-
-Running on an x86_64 dev box (cross-build; scripts honour `CROSS_COMPILE`):
-
-```bash
-apt install -y \
-  gcc-aarch64-linux-gnu libssl-dev bc flex bison libelf-dev \
-  fakeroot kmod dpkg-dev dpkg-cross rsync cpio \
-  git jq curl patch gh
-sudo dpkg --add-architecture arm64 && sudo apt-get update
-# plus :arm64 variants of the -dev libs above if you want to build the
-# iptables/ppp extras locally; the kernel itself builds with just
-# gcc-aarch64-linux-gnu.
-export CROSS_COMPILE=aarch64-linux-gnu-
 ```
 
 ### Typical runs
@@ -296,7 +286,7 @@ ls work/derived/reconciliation/
 - **`workflow_dispatch`**: manual build; optional publish checkbox.
 - **Push tag `kernel-*`**: build and auto-publish the GitHub Release.
 
-The job runs on `ubuntu-24.04-arm` — GitHub's hosted arm64 Linux runner, free for public repos — so the kernel and all userspace `.debs` build natively. No cross toolchain, no `ports.ubuntu.com` pinning, no foreign-arch apt setup: the runner IS arm64. Workflow artefacts are retained 30 days on every run regardless of publish status, so you can always grab the `.deb`s from a build without promoting it.
+The job runs on `ubuntu-24.04-arm` — GitHub's hosted arm64 Linux runner, free for public repos — so the kernel and all userspace `.debs` build natively. The runner IS arm64: no cross toolchain, no `ports.ubuntu.com` pinning, no foreign-arch apt setup. Workflow artefacts are retained 30 days on every run regardless of publish status, so you can always grab the `.deb`s from a build without promoting it.
 
 Tagging protocol:
 
