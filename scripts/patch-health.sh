@@ -21,7 +21,7 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-need git find
+need git find jq
 
 SOURCE=""
 VERSION_ARG=""
@@ -64,7 +64,7 @@ case "$SOURCE" in
         PATCH_DIR="$REPO_ROOT/release/patches/kernel"
         SDK_DIR="$PATCH_DIR/sdk-sources"
         RELEASE_SHA=""
-        if [[ -f "$REPO_ROOT/release/manifest.json" ]] && command -v jq >/dev/null 2>&1; then
+        if [[ -f "$REPO_ROOT/release/manifest.json" ]]; then
             RELEASE_SHA=$(jq -r '.reference_sha // ""' "$REPO_ROOT/release/manifest.json" 2>/dev/null)
         fi
         TAG="release${RELEASE_SHA:+ @ ${RELEASE_SHA:0:12}}"

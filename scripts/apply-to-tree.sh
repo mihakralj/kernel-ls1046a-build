@@ -27,7 +27,7 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-need git find cp make
+need git find cp make jq
 
 SOURCE=""
 VERSION_ARG=""
@@ -170,8 +170,7 @@ info "step 4/4: resolving config (make ARCH=arm64 olddefconfig)"
     echo "kernel=$KVER"
     echo "applied_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     if [[ "$SOURCE" == "release" && -f "$REPO_ROOT/release/manifest.json" ]]; then
-        command -v jq >/dev/null 2>&1 && \
-            echo "reference_sha=$(jq -r '.reference_sha // ""' "$REPO_ROOT/release/manifest.json")"
+        echo "reference_sha=$(jq -r '.reference_sha // ""' "$REPO_ROOT/release/manifest.json")"
     fi
 } > "$MARKER"
 

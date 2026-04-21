@@ -90,8 +90,7 @@ if (( CHECK_ONLY )); then
             "$STAGE" "$DST" >/dev/null 2>&1; then
         # Semantic manifest check: compare only the provenance fields that
         # actually identify the derivation (SHAs + counts), not timestamp.
-        if command -v jq >/dev/null 2>&1 \
-            && [[ -f "$STAGE/manifest.json" && -f "$DST/manifest.json" ]]; then
+        if [[ -f "$STAGE/manifest.json" && -f "$DST/manifest.json" ]]; then
             _fields='{ref: .reference_sha, ubase: .upstream_baseline, utarg: .upstream_target, status: .status, drift: .drifted_files, sdk: .sdk_source_count}'
             _s=$(jq -cS "$_fields" "$STAGE/manifest.json")
             _d=$(jq -cS "$_fields" "$DST/manifest.json")
