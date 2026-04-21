@@ -90,12 +90,12 @@ The kernel `.debs` are the load-bearing artefact. The extras (modules, patched i
 
 The common question is "what is the right order of calling these scripts?" The honest answer: there isn't a linear single order to drive:
 
-- Fetchers are independent. 
-- Sync is a gate. 
-- Derive is conditional.
-- Health is a verifier.
-- Publish and build are sinks.
-- The pipeline is a DAG with three optional tails.
+- Fetchers are **independent**. 
+- Sync is a **gate**. 
+- Derive is **conditional**.
+- Health is a **verifier**.
+- Publish and build are **sinks**.
+- The pipeline is a **DAG** with three optional tails.
 
 `run-pipeline.sh` linearizes it so wet robots don't have to think, but each script still works on its own. Which matters when you're debugging at 3 AM and the last thing you want is a 10k lines long monolith.
 
@@ -242,7 +242,7 @@ apt install -y \
   debhelper devscripts quilt \
   libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev \
   libpam0g-dev libpcap0.8-dev libsystemd-dev zlib1g-dev ppp-dev \
-  git jq curl patch gh
+  git jq curl patch patchutils gh
 ```
 
 ### Typical runs
