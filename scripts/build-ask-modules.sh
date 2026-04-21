@@ -31,7 +31,9 @@ source "$(dirname "$0")/common.sh"
 
 # ── Config ──────────────────────────────────────────────────────────────
 PLATFORM="${PLATFORM:-LS1046A}"
-CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+# Empty by default → native build (CI runs on an arm64 runner). Export
+# CROSS_COMPILE=aarch64-linux-gnu- only if cross-building from an x86_64 host.
+CROSS_COMPILE="${CROSS_COMPILE:-}"
 ARCH="${ARCH:-arm64}"
 KDIR_ARG=""
 
@@ -51,7 +53,7 @@ need make git dpkg-deb
 source "$REPO_ROOT/versions.lock"
 
 command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 \
-    || err "cross toolchain missing: ${CROSS_COMPILE}gcc"
+    || err "compiler missing: ${CROSS_COMPILE:-native }gcc"
 
 # ── Resolve kernel tree ─────────────────────────────────────────────────
 if [[ -n "$KDIR_ARG" ]]; then

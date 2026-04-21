@@ -44,7 +44,9 @@ source "$(dirname "$0")/common.sh"
 # ── Config ──────────────────────────────────────────────────────────────
 DIST="${DIST:-bookworm}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
-CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+# Empty by default → native build (CI runs on an arm64 runner). Export
+# CROSS_COMPILE=aarch64-linux-gnu- only if cross-building from an x86_64 host.
+CROSS_COMPILE="${CROSS_COMPILE:-}"
 REVISION_SUFFIX="${REVISION_SUFFIX:-+ask1}"
 ONLY=""
 
@@ -66,7 +68,7 @@ need apt-get dpkg-source dpkg-buildpackage git patch
 source "$REPO_ROOT/versions.lock"
 
 command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 \
-    || err "cross toolchain missing: ${CROSS_COMPILE}gcc"
+    || err "compiler missing: ${CROSS_COMPILE:-native }gcc"
 
 # ── Resolve upstream commit ────────────────────────────────────────────
 MIRROR="$WORK_DIR/upstream.git"
@@ -207,15 +209,21 @@ build_one() {
         return 1
     fi
 
-    # 6. Cross-build
+    # 6. Build (native if host arch == target, cross otherwise)
     local build_log="$sub/build.log"
-    info "  cross-building for $TARGET_ARCH (log: $build_log)"
+    info "  building for $TARGET_ARCH (log: $build_log)"
     set +e
     (
         cd "$src_dir"
         export DEB_BUILD_OPTIONS="nocheck parallel=$(nproc_any)"
+        local build_host_arch
+        build_host_arch=$(dpkg --print-architecture)
+        local hostarch_args=()
+        if [[ "$build_host_arch" != "$TARGET_ARCH" ]]; then
+            hostarch_args+=( --host-arch "$TARGET_ARCH" )
+        fi
         dpkg-buildpackage \
-            --host-arch "$TARGET_ARCH" \
+            "${hostarch_args[@]}" \
             --build=binary \
             -uc -us 2>&1
     ) > "$build_log"

@@ -56,7 +56,9 @@ source "$(dirname "$0")/common.sh"
 # ── Config ──────────────────────────────────────────────────────────────
 DIST="${DIST:-bookworm}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
-CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+# Empty by default → native build (CI runs on an arm64 runner). Export
+# CROSS_COMPILE=aarch64-linux-gnu- only if cross-building from an x86_64 host.
+CROSS_COMPILE="${CROSS_COMPILE:-}"
 REVISION_SUFFIX="${REVISION_SUFFIX:-+ask1}"
 SRC_PKG="iptables"
 
@@ -90,7 +92,7 @@ need apt-get dpkg-source dpkg-buildpackage git
 source "$REPO_ROOT/versions.lock"
 
 command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 \
-    || err "cross toolchain missing: ${CROSS_COMPILE}gcc"
+    || err "compiler missing: ${CROSS_COMPILE:-native }gcc"
 
 # ── Resolve upstream commit ────────────────────────────────────────────
 MIRROR="$WORK_DIR/upstream.git"
@@ -271,10 +273,18 @@ set +e
 (
     cd "$SRC_DIR"
     export DEB_BUILD_OPTIONS="nocheck parallel=$(nproc_any)"
-    [[ -f "/etc/dpkg-cross/cross-config.${TARGET_ARCH}" ]] \
-        && export CONFIG_SITE="/etc/dpkg-cross/cross-config.${TARGET_ARCH}"
+    # Only pass --host-arch when the target differs from the build host.
+    # On a native arm64 runner DEB_HOST_ARCH is already arm64, so forcing
+    # --host-arch would needlessly engage dpkg-cross machinery.
+    build_host_arch=$(dpkg --print-architecture)
+    hostarch_args=()
+    if [[ "$build_host_arch" != "$TARGET_ARCH" ]]; then
+        hostarch_args+=( --host-arch "$TARGET_ARCH" )
+        [[ -f "/etc/dpkg-cross/cross-config.${TARGET_ARCH}" ]] \
+            && export CONFIG_SITE="/etc/dpkg-cross/cross-config.${TARGET_ARCH}"
+    fi
     dpkg-buildpackage \
-        --host-arch "$TARGET_ARCH" \
+        "${hostarch_args[@]}" \
         --build=binary \
         -uc -us \
         2>&1

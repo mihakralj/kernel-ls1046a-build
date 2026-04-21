@@ -5,8 +5,8 @@ name: build-and-release
 #   - workflow_dispatch        → manual build; optional release upload
 #   - push tag kernel-*        → build the pinned version and upload as a Release
 #
-# The job cross-compiles arm64 on an x86_64 runner (ubuntu-latest) — this is
-# what `make bindeb-pkg` with CROSS_COMPILE=aarch64-linux-gnu- does natively.
+# The job builds natively on a GitHub-hosted arm64 runner (ubuntu-24.04-arm).
+# No cross toolchain, no foreign-arch apt juggling, no dpkg-cross.
 
 on:
   push:
@@ -37,8 +37,8 @@ concurrency:
 
 jobs:
   build:
-    name: Cross-compile ASK kernel (arm64)
-    runs-on: ubuntu-latest
+    name: Build ASK kernel (arm64, native)
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
 
     steps:
@@ -47,82 +47,31 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install toolchain and build deps
+      - name: Install build deps (native arm64)
         run: |
           set -eux
           # ── Step 1: enable deb-src so `apt-get source` works ──────────
-          # deb-src is commented out by default on ubuntu-latest. Needed
-          # for build-ask-iptables.sh / build-ask-ppp.sh (`apt-get source`).
+          # deb-src is commented out by default. Needed for
+          # build-ask-iptables.sh / build-ask-ppp.sh (`apt-get source`).
           if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then
             # Ubuntu 24.04+ deb822 format.
             sudo sed -i 's/^Types: deb$/Types: deb deb-src/' \
               /etc/apt/sources.list.d/*.sources || true
           fi
           sudo sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list || true
-
-          # ── Step 2: install host + cross toolchain ───────────────────
-          # Done before adding arm64 as a foreign arch so apt doesn't try
-          # to fetch arm64 packages from archive.ubuntu.com (which doesn't
-          # carry them — arm64 is on ports.ubuntu.com).
           sudo apt-get update -qq
+
+          # ── Step 2: native compiler + kernel + extras build-deps ─────
+          # Running natively on arm64, so plain `gcc` is the target compiler;
+          # no cross toolchain, no dpkg-cross, no foreign-arch dance. Native
+          # dev libs satisfy dpkg-checkbuilddeps for iptables/ppp/rp-pppoe.
           sudo apt-get install -y --no-install-recommends \
-            gcc-aarch64-linux-gnu \
-            build-essential debhelper devscripts quilt \
+            build-essential debhelper devscripts quilt dpkg-dev \
             libssl-dev bc flex bison libelf-dev \
-            fakeroot kmod dpkg-dev dpkg-cross rsync cpio patch \
-            jq curl ca-certificates
-
-          # ── Step 3: add arm64 foreign arch with correct URIs ─────────
-          # ports.ubuntu.com is the canonical mirror for non-amd64/i386
-          # Ubuntu architectures. Restrict existing sources to amd64 so
-          # apt doesn't fail with 404s trying to pull arm64 Packages files
-          # from the amd64 archive, then add arm64 sources pointing at
-          # ports.ubuntu.com.
-          sudo dpkg --add-architecture arm64
-
-          if ls /etc/apt/sources.list.d/ubuntu.sources >/dev/null 2>&1; then
-            # deb822 format: pin the default entries to amd64 only, then
-            # drop in a parallel arm64 entry pointing at ports.
-            sudo sed -i '/^Types: deb/a Architectures: amd64' \
-              /etc/apt/sources.list.d/ubuntu.sources
-            . /etc/os-release
-            cat <<EOF | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.sources >/dev/null
-          Types: deb
-          URIs: http://ports.ubuntu.com/ubuntu-ports
-          Suites: ${UBUNTU_CODENAME} ${UBUNTU_CODENAME}-updates ${UBUNTU_CODENAME}-backports ${UBUNTU_CODENAME}-security
-          Components: main restricted universe multiverse
-          Architectures: arm64
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          EOF
-          elif [ -f /etc/apt/sources.list ]; then
-            # Legacy one-line format.
-            sudo sed -i 's|^deb http|deb [arch=amd64] http|g; s|^deb-src http|deb-src [arch=amd64] http|g' \
-              /etc/apt/sources.list
-            . /etc/os-release
-            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${UBUNTU_CODENAME} main restricted universe multiverse" \
-              | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list >/dev/null
-            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${UBUNTU_CODENAME}-updates main restricted universe multiverse" \
-              | sudo tee -a /etc/apt/sources.list.d/ubuntu-arm64.list >/dev/null
-          fi
-          sudo apt-get update -qq
-
-          # ── Step 4: install arm64 dev libs for extras build-deps ─────
-          # iptables, ppp and rp-pppoe source packages declare build-deps
-          # that dpkg-checkbuilddeps enforces before dpkg-buildpackage will
-          # run, even when cross-building. Pull them as :arm64 from ports.
-          # ppp-dev:arm64 lets rp-pppoe build even if our patched ppp build
-          # fails — it'll just use Ubuntu's stock headers.
-          sudo apt-get install -y --no-install-recommends \
-            libmnl-dev:arm64 \
-            libnftnl-dev:arm64 \
-            libnetfilter-conntrack-dev:arm64 \
-            libnfnetlink-dev:arm64 \
-            libpam0g-dev:arm64 \
-            libpcap0.8-dev:arm64 \
-            libssl-dev:arm64 \
-            libsystemd-dev:arm64 \
-            zlib1g-dev:arm64 \
-            ppp-dev:arm64 || true
+            fakeroot kmod rsync cpio patch \
+            jq curl ca-certificates \
+            libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev \
+            libpam0g-dev libpcap0.8-dev libsystemd-dev zlib1g-dev ppp-dev
 
       - name: Preflight (environment report)
         # Dump everything useful for post-mortem into a single collapsible
@@ -135,8 +84,7 @@ jobs:
           echo "# memory"; free -h
           echo "# disk";   df -h /
           echo "# git";    git --version
-          echo "# gcc (host)"; gcc --version | head -1
-          echo "# gcc (cross)"; aarch64-linux-gnu-gcc --version | head -1
+          echo "# gcc";    gcc --version | head -1
           echo "# make";   make --version | head -1
           echo "# gh";     gh --version | head -1
           echo "# jq";     jq --version
