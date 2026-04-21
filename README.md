@@ -4,11 +4,20 @@
 
 Mono's NXP [ASK (Application Solutions Kit)][ask-upstream] is a patch set that bolts fast-path networking onto Layerscape SoCs: the DPAA SDK driver stack, netfilter-offload hooks, IPsec crypto-engine plumbing, the works. It targets whichever kernel Mono happened to be building against. Right now that's 6.12.
 
-VyOS 1.5/1.6, Debian stable, and every other downstream that cares about a five-year support window lives on 6.6 LTS kernel. So somebody has to do the translation work. And somebody did: [`ask-ls1046a-6.6`](https://github.com/mihakralj/ask-ls1046a-6.6) is a hand-crafted 6.6-compatible port of ASK, living as a static reference tree. Beautiful. Also frozen in time and detached from Mono main ask development tree.
+VyOS 1.5/1.6, Debian stable, and every other downstream that pins a 6.6 LTS kernel lives five years behind that 6.12 shoreline. So somebody has to do the translation work. And somebody did: [`ask-ls1046a-6.6`](https://github.com/mihakralj/ask-ls1046a-6.6) is a hand-crafted 6.6-compatible port of ASK, living as a static reference tree. Beautiful. Also frozen in time and detached from Mono main ask development tree.
 
-This repo is the engine that keeps that translation honest. It watches the 6.12 upstream for new commits, classifies them, re-derives the 6.6 patch set, verifies the output applies to a fresh kernel tarball, and builds Debian packages for the NXP LS1046A. All of it driven by one entry point.
+This repo is the watchdog that keeps that translation honest. It watches the 6.12 upstream for new commits, classifies them, detects drift against the 6.6 reference, verifies the current patch set still applies to a fresh kernel tarball, and builds Debian packages for the NXP LS1046A. Real re-derivation is a human job on reconciliation bundles; automation's job is to notice drift early and ship the last known-good artefacts in the meantime.
 
-CI runs natively on GitHub-hosted **arm64** runners (`ubuntu-24.04-arm`), so the kernel and every userspace `.deb` is a straight native compile. No cross toolchain, no foreign-arch apt juggling, no `dpkg-cross` — and none of the scripts support cross-compilation: arm64 host in, arm64 `.deb`s out.
+CI runs natively on GitHub-hosted **arm64** runners (the `ubuntu-24.04-arm` label, free for public repos since January 2024), so the kernel and every userspace `.deb` file is a straight native compile. No cross toolchain, no foreign-arch apt juggling, no `dpkg-cross` — and none of the scripts support cross-compilation: arm64 host in, arm64 `.deb` files out.
+
+## Design properties
+
+Four load-bearing contracts the scripts actually hold themselves to:
+
+- **Fail-loud, don't auto-pin.** When upstream breaks the translation, CI goes red; the last successful release stays the authoritative download. There is no silent "patch with fuzz" path — `patch-health.sh` runs `git apply --check` strictly.
+- **Independent-layer soft-fail.** The five optional ASK layers fail independently under `run_step_tolerate_all`. A broken `rp-pppoe` rebuild never kills the kernel release.
+- **Immutable release tags.** `kernel-<kver>-ask<N>` is write-once. A downstream that pins a tag gets byte-identical `.deb` files forever; `SHA256SUMS` is attached to every release.
+- **Exit-code contract on fetchers.** `0 = unchanged`, `10 = moved`. Cheap for CI to query and turns "did anything change since last run?" into a one-pipe shell check.
 
 ## Table of contents
 
@@ -56,7 +65,7 @@ is a building block.
      4. sync-upstream.sh     classify new commits (T1/T2/T3)
             │
             ▼
-     5. derive-patches.sh    rebuild 6.6 patches from 6.12 + delta
+     5. derive-patches.sh    detect drift, emit reconciliation bundles
             │
             ▼
      6. patch-health.sh      do patches still apply to linux-6.6.y?
@@ -82,9 +91,11 @@ is a building block.
 
 Each step in the backporting process has a purpose, a precondition, and a single responsibility. When something breaks, you know which step did it. When nothing's changed, each step sees its cache and returns in under a second. That part matters: the fetcher contract is exit 0 (unchanged) / exit 10 (changed / new). The orchestrator reads those and builds the summary.
 
+Note on `derive-patches.sh`: the script name is historical — it does **not** rebuild patches from 6.12 + delta. "Simple diff-of-diffs + patch" does not work across a two-point-release kernel gap. What it does do: copy the 6.6 reference through as a passthrough, detect any upstream-delta files that have drifted against the reference, and emit per-file reconciliation bundles for a human to port manually. Manifest status reflects that (`ok` when no drift, `needs_review` when the maintainer has bundles to work through).
+
 ### Soft-fail policy for ASK extras (step 8b)
 
-The kernel `.debs` are the load-bearing artefact. The extras (modules, patched iptables, patched ppp/rp-pppoe) can fail for distro-specific reasons without that being a reason to lose a green kernel build. `run-pipeline.sh` therefore invokes each extra through `run_step_tolerate_all`: a helper that warns loudly on non-zero exit but never aborts the pipeline. The final summary reports per-layer status (`built`, `skipped (precondition)`, `failed`) and the kernel `.debs` are always uploaded.
+The kernel `.deb` files are the load-bearing artefact. The extras (modules, patched iptables, patched ppp/rp-pppoe) can fail for distro-specific reasons without that being a reason to lose a green kernel build. `run-pipeline.sh` therefore invokes each extra through `run_step_tolerate_all`: a helper that warns loudly on non-zero exit but never aborts the pipeline. The final summary reports per-layer status (`built`, `skipped (precondition)`, `failed`) and the kernel `.deb` files are always uploaded.
 
 ### Why this shape
 
@@ -107,7 +118,7 @@ The common question is "what is the right order of calling these scripts?" The h
 | `fetch-reference.sh` | `REFERENCE_REPO` | `work/reference/` (full clone) | 0 / 10 |
 | `fetch-upstream.sh` | `UPSTREAM_REPO` | `work/upstream.git/` (bare mirror) | 0 / 10 |
 | `sync-upstream.sh` | baseline SHA → HEAD delta | classified commit list, written to stderr | 0 clean, 2 T2 work pending |
-| `derive-patches.sh` | ref SHA + upstream delta | `work/derived/` tree + `manifest.json` | 0 (status in manifest) |
+| `derive-patches.sh` | ref SHA + upstream delta | `work/derived/` (reference passthrough + per-file reconciliation bundles when drift exists) + `manifest.json` | 0 (status in manifest: `ok` / `needs_review`) |
 | `patch-health.sh` | `work/derived/` → `release/` → `work/reference/` | dry-run report, `work/patch-health.txt` | 0 apply clean, 1 rejects |
 | `publish-release.sh` | `work/derived/` | `release/` (overwrite) | 0 published, 1 precondition failed, 2 `--check` sees drift |
 | `apply-to-tree.sh` | kernel tree + source fallback | kernel tree with SDK copied, patch applied, `.ask-applied` marker | 0 / 1 |
@@ -122,7 +133,7 @@ The common question is "what is the right order of calling these scripts?" The h
 
 ### Tier classification
 
-`common::classify_path` and `classify_commit` are the single source of truth for "what counts as kernel patch work":
+`common.sh::classify_path` and `common.sh::classify_commit` are the single source of truth for "what counts as kernel patch work":
 
 ```text
 T1 direct-apply   userspace, out-of-tree modules, lib patches
@@ -130,7 +141,7 @@ T2 port required  anything under patches/kernel/* (needs 6.12 → 6.6 port)
 T3 meta           README, Makefile, build scripts, everything else
 ```
 
-When `sync-upstream.sh` sees a T2 commit since the pinned baseline, it exits 2 and the pipeline runs `derive-patches.sh` to rebuild. T1 and T3 commits are noted but don't force a rebuild.
+When `sync-upstream.sh` sees a T2 commit since the pinned baseline, it exits 2 and the pipeline runs `derive-patches.sh` to check whether the reference needs re-porting. T1 and T3 commits are noted but don't force that check.
 
 ### Fetcher state contract
 
@@ -146,7 +157,7 @@ release/
 ├── manifest.json                       # provenance: ref SHA, upstream SHA, counts
 ├── ask.config                          # kernel config fragment
 └── patches/kernel/
-    ├── 003-ask-kernel-hooks.patch      # 175 KB monolith, 13 subsystems
+    ├── 003-ask-kernel-hooks.patch      # 175 KB monolith, 74 files touched
     └── sdk-sources/                    # 67 files, NXP-only drivers
         ├── drivers/net/ethernet/freescale/sdk_dpaa/
         ├── drivers/net/ethernet/freescale/sdk_fman/
@@ -163,38 +174,38 @@ work/build/
 ├── linux-image-6.6.N-ask_6.6.N-1_arm64.deb         # kernel + dtbs + modules
 ├── linux-headers-6.6.N-ask_6.6.N-1_arm64.deb       # for OOT modules
 ├── linux-libc-dev_6.6.N-1_arm64.deb                # userspace headers
-├── *.buildinfo, *.changes                          # dpkg provenance
+├── *.buildinfo, *.changes                          # dpkg provenance (not .deb files)
 └── build.log                                       # full compile log
 ```
 
-Built natively on an arm64 runner via `make bindeb-pkg`. Tested. Stripped of the host-leaking `output_dir` before upload. Gitignored.
+Three `.deb` files per build. A fourth `linux-image-*-dbg_*.deb` is produced only when the kernel config carries `CONFIG_DEBUG_INFO=y`; the shipping ASK config does not enable it, so release uploads are three-package sets unless you rebuild with debug info turned on locally. Built natively on an arm64 runner via `make bindeb-pkg`. Stripped of the host-leaking `output_dir` before upload. Gitignored.
 
 ### GitHub Releases (permanent, consumable)
 
-Tagged `kernel-<kver>-ask<N>`. Attached: the four kernel `.deb`s above plus, when enabled and their preconditions are met, any of the additional ASK layer `.deb`s listed in [ASK stack layers](#ask-stack-layers). Also attached: `SHA256SUMS` and `manifest.json`. Release notes include the reference SHA, upstream target SHA, SDK source count, and a paste-ready download block for `vyos-ls1046a-build`. This is the URL downstream pins against.
+Tagged `kernel-<kver>-ask<N>`. Attached: the three kernel `.deb` files listed above plus, when enabled and their preconditions are met, any of the additional ASK layer `.deb` files listed in [ASK stack layers](#ask-stack-layers). Also attached: `SHA256SUMS` and `manifest.json`. Release notes include the reference SHA, upstream target SHA, SDK source count, and a paste-ready download block for `vyos-ls1046a-build`. This is the URL downstream pins against.
 
 ## ASK stack layers
 
-Kernel `.debs` produced by `build-kernel.sh` cover only what `make bindeb-pkg` emits: the kernel image (with the ASK fast-path hooks compiled in), debug symbols, headers, and libc-dev. Without additional layers, the in-kernel hooks remain **dormant** — every packet still falls through to the Linux slow path because nothing is registered on the hook sites.
+> TL;DR: the kernel image always ships. On top of it there are **five optional layers** (table row `0` is the kernel itself; rows `1`, `2`, `3+4`, `5` are those five layers — layers 3 and 4 share a single Debian source rebuild, hence the combined row). If you only want the kernel `.deb` files, skip to [Quick start](#quick-start).
 
-The full ASK stack is five layers. Each is a separate optional build that produces its own `.deb` (or set of `.deb`s) and is wired into the pipeline behind a feature flag.
+Kernel `.deb` files produced by `build-kernel.sh` cover only what `make bindeb-pkg` emits: the kernel image (with the ASK fast-path hooks compiled in), headers, and libc-dev. Without the layers below, the in-kernel hooks remain **dormant** — every packet still falls through to the Linux slow path because nothing is registered on the hook sites.
 
 | # | Layer | What it contains | Pipeline flag | Status |
 |---|---|---|---|---|
-| 0 | **Kernel image** (always) | `linux-image-*`, `linux-headers-*`, `linux-libc-dev`, debug — ASK hooks compiled in | *(default)* | ✅ Shipping |
-| 1 | **OOT kernel modules** | `cdx`, `fci`, `auto_bridge` — the drivers that register on the hook sites | `--ask-extras` | ⏸ Blocked (see below) |
+| 0 | **Kernel image** (always, not an optional layer) | `linux-image-*`, `linux-headers-*`, `linux-libc-dev` — ASK hooks compiled in | *(default)* | ✅ Shipping |
+| 1 | **OOT kernel modules** | `cdx`, `fci`, `auto_bridge` — the drivers that register on the hook sites | `--ask-extras` | 🟡 Scripted · skips when FMan SDK absent (default) |
 | 2 | **Userspace daemons** | `fmc` (FMan configurator), `cmm` (conn-track/manip), `dpa_app` — XML policy → silicon | `--ask-extras` | 🟡 Not yet scripted |
 | 3+4 | **Patched `iptables` + xtables plugins** | Single Debian source rebuild: patched iptables binaries **and** `libxt_QOSMARK.so`, `libxt_QOSCONNMARK.so` | `--ask-extras` | 🟢 Shipping |
 | 5 | **Patched `ppp` + `rp-pppoe`** | PPP ifindex fix (ships) + rp-pppoe CMM relay patch (needs layer 2) | `--ask-extras` | 🟢 ppp · ⏸ rp-pppoe |
 
 Legend: ✅ built and released · 🟢 implemented (CI verification pending) ·
-🟡 planned · ⏸ precondition blocked.
+🟡 scripted but precondition-gated or not yet wired · ⏸ precondition blocked by an external dependency.
 
-> Layers 3 and 4 collapse into a single Debian source rebuild because the upstream ASK patch creates exactly the same set of new files needed by both: four new `extensions/libxt_{qos,QOS}{mark,connmark}.c` and their four headers. Building the Debian `iptables` source package with that patch applied produces the patched binary **and** the four `.so` extensions in one coherent, conflict-free set of `.debs`.
+> Layers 3 and 4 collapse into a single Debian source rebuild because the upstream ASK patch creates exactly the same set of new files needed by both: four new `extensions/libxt_{qos,QOS}{mark,connmark}.c` and their four headers. Building the Debian `iptables` source package with that patch applied produces the patched binary **and** the four `.so` extensions in one coherent, conflict-free set of `.deb` files.
 
 ### What `--ask-extras` runs
 
-Pipeline step 8b. After a successful kernel build, each extra is attempted in sequence under `run_step_tolerate_all`: a failure in one layer does not block the others or the kernel `.debs`. The summary reports per-layer status (`built`, `skipped (precondition)`, `failed`). Philosophy: ship what builds, flag what doesn't, never lose the kernel over a userspace bug.
+Pipeline step 8b. After a successful kernel build, each extra is attempted in sequence under `run_step_tolerate_all`: a failure in one layer does not block the others or the kernel `.deb` files. The summary reports per-layer status (`built`, `skipped (precondition)`, `failed`). Philosophy: ship what builds, flag what doesn't, never lose the kernel over a userspace bug.
 
 ### Layer 1/2 precondition: NXP linux-lsdk FMan SDK
 
@@ -210,9 +221,9 @@ include $(srctree)/drivers/net/ethernet/freescale/sdk_fman/ncsw_config.mk
 
 To enable layers 1 and 2: obtain the NXP linux-lsdk `sdk_fman/` subtree and install it under `release/patches/kernel/sdk-sources/` so that `apply-to-tree.sh` copies it into the kernel tree alongside the existing `sdk_dpaa/` stub. Once `ncsw_config.mk` is present, the precondition gate opens automatically.
 
-### Layers 3/4/5: independent
+### Layers 3/4: self-contained · Layer 5: ppp self-contained, rp-pppoe depends on layer 2
 
-The patched iptables rebuild (which covers both xtables plugins and the iptables binary) and the pending patched `ppp` / `rp-pppoe` rebuilds consume patches from `work/upstream.git` (`patches/iptables/`, `patches/ppp/`, `patches/rp-pppoe/`) applied to Debian source packages. They do not depend on the FMan SDK and build on any arm64 host with the Debian build toolchain available.
+The patched iptables rebuild (which covers both xtables plugins and the iptables binary) and the `ppp` sub-build of layer 5 are self-contained: they consume patches from `work/upstream.git` (`patches/iptables/`, `patches/ppp/`, `patches/rp-pppoe/`) applied to Debian source packages, do not depend on the FMan SDK, and build on any arm64 host with the Debian build toolchain available. The `rp-pppoe` sub-build of layer 5 is the one exception — it consumes the `libcmm.h` header that only ASK layer 2 provides, and skips cleanly until that layer is installed.
 
 `scripts/build-ask-iptables.sh` implements layers 3+4. Upstream ASK does **not** ship a `patches/iptables/*.patch`; instead it provides the four new xtables extension sources (`libxt_{qos,QOS}{mark,connmark}.c`) and the matching kernel-UAPI headers under `iptables-extensions/`. The script:
 
@@ -221,7 +232,7 @@ The patched iptables rebuild (which covers both xtables plugins and the iptables
 3. Synthesises a clean unified diff for provenance, registers it in    `debian/patches/series` for 3.0 (quilt) source format.
 4. `dch --newversion <ver>+ask1` and runs `dpkg-buildpackage --build=binary`    natively on arm64.
 
-Output: the standard Debian iptables `.deb` set (`iptables`, `libxtables12`, `libip4tc2`, `libip6tc2`, `iptables-dev`) rebuilt with the QOSMARK / QOSCONNMARK extensions baked in.
+Output: the standard Debian iptables `.deb` file set (`iptables`, `libxtables12`, `libip4tc2`, `libip6tc2`, `iptables-dev`) rebuilt with the QOSMARK / QOSCONNMARK extensions baked in.
 
 `scripts/build-ask-ppp.sh` implements layer 5. It iterates the two source packages (`ppp`, `rp-pppoe`) independently — each sub-build has its own `debian/patches/0999-ask.patch` extracted from the upstream mirror (`patches/ppp/01-nxp-ask-ifindex.patch`, `patches/rp-pppoe/01-nxp-ask-cmm-relay.patch`). A dry-run gate rejects upfront if a patch no longer applies; partial success (e.g. `ppp` built but `rp-pppoe` skipped) still exits 0 so the pipeline proceeds.
 
@@ -257,7 +268,7 @@ apt install -y \
 # air-gapped / zero-change build from committed release/
 ./scripts/run-pipeline.sh --skip-fetch --no-derive --build
 
-# kernel .debs + all ASK layer .debs that their preconditions permit
+# kernel .deb files + all ASK layer .deb files that their preconditions permit
 ./scripts/run-pipeline.sh --skip-fetch --no-derive --ask-extras
 
 # the full monty: fetch, derive, verify, publish source, build (all layers),
@@ -271,14 +282,14 @@ apt install -y \
 ### When something's wrong
 
 ```bash
-# patches don't apply to latest 6.6.y → patch-health.sh -> exit 1
+# patches don't apply to latest 6.6.y → patch-health.sh → exit 1
 ./scripts/patch-health.sh --source release
 
-# T2 commits piled up upstream → sync-upstream -> exit 2
+# T2 commits piled up upstream → sync-upstream → exit 2
 ./scripts/sync-upstream.sh
 ./scripts/derive-patches.sh
 
-# reconciliation bundles to review → derive-patches -> status=needs_review
+# reconciliation bundles to review → derive-patches → status=needs_review
 ls work/derived/reconciliation/
 ```
 
@@ -290,7 +301,7 @@ ls work/derived/reconciliation/
 - **`workflow_dispatch`**: manual build; optional publish checkbox.
 - **Push tag `kernel-*`**: build and auto-publish the GitHub Release.
 
-The job runs on `ubuntu-24.04-arm` — GitHub's hosted arm64 Linux runner, free for public repos — so the kernel and all userspace `.debs` build natively. The runner IS arm64: no cross toolchain, no `ports.ubuntu.com` pinning, no foreign-arch apt setup. Workflow artefacts are retained 30 days on every run regardless of publish status, so you can always grab the `.deb`s from a build without promoting it.
+The job runs on the `ubuntu-24.04-arm` runner label — GitHub's hosted arm64 Linux runner, free for public repos since January 2024 — so the kernel and all userspace `.deb` files build natively. The runner IS arm64: no cross toolchain, no `ports.ubuntu.com` pinning, no foreign-arch apt setup. Workflow artefacts are retained 30 days on every run regardless of publish status, so you can always grab the `.deb` files from a build without promoting it. (GitHub has renamed arm64 runner labels before; if `ubuntu-24.04-arm` ever 404s in CI, look up the current hosted arm64 label rather than assuming the design is obsolete.)
 
 Tagging protocol:
 
@@ -301,7 +312,7 @@ git push --tags
 # CI takes it from there
 ```
 
-Bump `-askN` when the same kernel version gets re-released (reference SHA moved, config fragment changed, etc.). Bump kernel version when upstream 6.6.y advances.
+Bump `-askN` when the same kernel version gets re-released (reference SHA moved, config fragment changed, etc.). Bump `<kver>` **and reset `N` to 1** when upstream 6.6.y advances — `publish-binaries.sh` auto-computes `N` by scanning existing tags for the current `<kver>`, so the reset happens naturally on a new kernel version.
 
 ## For downstream consumers (vyos-ls1046a-build)
 
@@ -339,9 +350,9 @@ Attribution where it's due:
 - **NXP** authored the DPAA SDK drivers under `drivers/net/ethernet/freescale/sdk_{dpaa,fman}` and `drivers/staging/fsl_qbman`. Those files are licensed under GPL-2.0 with individual file headers.
 - **Mono** built the 6.12 ASK patch set in [`we-are-mono/ASK`][ask-upstream], which is the derivation source for the hooks patch here.
 - **[@mihakralj](https://github.com/mihakralj)** maintains the [6.6 reference translation][ref-repo]. This repo's monolithic `003-ask-kernel-hooks.patch` comes from that work.
-- The orchestration, derivation engine, and packaging scripts in `scripts/` are original to this repo. Same GPL-2.0. Same rules.
+- The orchestration, drift-detection, and packaging scripts in `scripts/` are original to this repo. Same GPL-2.0. Same rules.
 
-Kernel sources pulled by `fetch-kernel.sh` come straight from `kernel.org` and carry their own upstream licences unchanged. We don't redistribute the kernel, we patch it.
+Kernel sources pulled by `fetch-kernel.sh` come straight from `kernel.org` and carry their own upstream licences unchanged. The tarball is downloaded over HTTPS but is **not** cryptographically verified by these scripts — `.tar.sign` files are not fetched and no maintainer keyring is imported. If end-to-end trust matters for your build, add a verified-boot-style check in your own pipeline before consuming the tarball.
 
 [ask-upstream]: https://github.com/we-are-mono/ASK
 [ref-repo]: https://github.com/mihakralj/ask-ls1046a-6.6
