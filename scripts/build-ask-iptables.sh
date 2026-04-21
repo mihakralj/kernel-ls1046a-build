@@ -1,33 +1,42 @@
 #!/usr/bin/env bash
 # build-ask-iptables.sh — cross-compile a patched Debian iptables source package
-# for arm64 with the NXP ASK QOSMARK/QOSCONNMARK extensions applied.
+# for arm64 with the NXP ASK QOSMARK/QOSCONNMARK extensions added.
 #
 # This single script covers both Phase 3 (xtables libxt_QOS*.so extensions)
-# and Phase 4 (patched iptables binary), because the upstream ASK patch
-# creates exactly the same set of new files needed for both: the .c/.h
-# source files compile into the iptables-extensions .so plugins that ship
-# inside libxtables12's extension directory. Rebuilding the Debian source
-# package gives us consistent .debs that can be installed alongside the
-# kernel without conflict.
+# and Phase 4 (patched iptables binary). Upstream ASK does not ship a
+# pre-baked patch for iptables; instead it provides the four new extension
+# source files and four new netfilter UAPI headers under
+# `iptables-extensions/` in the upstream tree. This script copies them into
+# the unpacked Debian iptables source as new files and lets the iptables
+# build's autodiscovery (`extensions/GNUmakefile.in` globs `libxt_*.c`)
+# pick them up. The headers are installed into the iptables source's
+# `include/linux/netfilter/` so the extensions' `#include
+# <linux/netfilter/xt_QOSMARK.h>` resolves at build time.
+#
+# Files copied from upstream `iptables-extensions/`:
+#   libxt_qosmark.c      libxt_QOSMARK.c
+#   libxt_qosconnmark.c  libxt_QOSCONNMARK.c
+#   include/linux/netfilter/xt_qosmark.h     xt_QOSMARK.h
+#   include/linux/netfilter/xt_qosconnmark.h xt_QOSCONNMARK.h
 #
 # Prerequisites:
-#   - work/upstream.git/ contains the ASK mirror (with
-#     patches/iptables/001-qosmark-extensions.patch at UPSTREAM_BASELINE).
-#     scripts/fetch-upstream.sh must have run at some point.
+#   - work/upstream.git/ contains the ASK mirror (with iptables-extensions/
+#     populated at UPSTREAM_BASELINE/UPSTREAM_TARGET).
+#     scripts/fetch-upstream.sh must have run.
 #   - Host has the Debian cross-build toolchain:
-#       dpkg-dev debhelper dh-autoreconf quilt
-#       gcc-aarch64-linux-gnu + dpkg-cross foreign arch
+#       dpkg-dev debhelper devscripts dh-autoreconf quilt
+#       gcc-aarch64-linux-gnu + dpkg-cross + arm64 foreign arch
 #     The CI workflow installs these in its "Install toolchain" step.
 #
-# Pipeline position: after build-ask-modules.sh (independent of it; the
-# xtables rebuild has no FMan SDK dependency).
+# Pipeline position: after build-ask-modules.sh (independent; xtables
+# rebuild has no FMan SDK dependency).
 #
 # Usage:
 #   ./scripts/build-ask-iptables.sh
 #   ./scripts/build-ask-iptables.sh --dist bookworm   # target distro (default: bookworm)
 #   ./scripts/build-ask-iptables.sh --arch arm64      # default; target arch
 #
-# Outputs:
+# Outputs (typical Debian iptables binary set, +ask suffix):
 #   work/build/iptables_<ver>+ask1_arm64.deb
 #   work/build/libxtables12_<ver>+ask1_arm64.deb
 #   work/build/libip4tc2_<ver>+ask1_arm64.deb
@@ -39,7 +48,7 @@
 # Exit codes:
 #   0  .debs built and placed in work/build/
 #   1  missing prerequisites, apt-get source failure, or build failure
-#   2  patch does not apply cleanly to the source tree
+#   2  source files missing in upstream mirror
 
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
@@ -49,21 +58,32 @@ DIST="${DIST:-bookworm}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
 REVISION_SUFFIX="${REVISION_SUFFIX:-+ask1}"
-# Source package & upstream patch to apply
 SRC_PKG="iptables"
-PATCH_SUBPATH="patches/iptables/001-qosmark-extensions.patch"
+
+# Files to copy from upstream → Debian source tree
+# Format: "<upstream-path>:<dest-relative-to-iptables-source>"
+ASK_FILES=(
+    "iptables-extensions/libxt_qosmark.c:extensions/libxt_qosmark.c"
+    "iptables-extensions/libxt_QOSMARK.c:extensions/libxt_QOSMARK.c"
+    "iptables-extensions/libxt_qosconnmark.c:extensions/libxt_qosconnmark.c"
+    "iptables-extensions/libxt_QOSCONNMARK.c:extensions/libxt_QOSCONNMARK.c"
+    "iptables-extensions/include/linux/netfilter/xt_qosmark.h:include/linux/netfilter/xt_qosmark.h"
+    "iptables-extensions/include/linux/netfilter/xt_QOSMARK.h:include/linux/netfilter/xt_QOSMARK.h"
+    "iptables-extensions/include/linux/netfilter/xt_qosconnmark.h:include/linux/netfilter/xt_qosconnmark.h"
+    "iptables-extensions/include/linux/netfilter/xt_QOSCONNMARK.h:include/linux/netfilter/xt_QOSCONNMARK.h"
+)
 
 while (( $# )); do
     case "$1" in
         --dist)    DIST="${2:?--dist needs arg}";          shift 2 ;;
         --arch)    TARGET_ARCH="${2:?--arch needs arg}";   shift 2 ;;
         --cross)   CROSS_COMPILE="${2:?--cross needs arg}"; shift 2 ;;
-        -h|--help) sed -n '1,48p' "$0"; exit 0 ;;
+        -h|--help) sed -n '1,50p' "$0"; exit 0 ;;
         *)         err "unknown arg: $1" ;;
     esac
 done
 
-need apt-get dpkg-source dpkg-buildpackage git patch
+need apt-get dpkg-source dpkg-buildpackage git
 
 [[ -f "$REPO_ROOT/versions.lock" ]] || err "versions.lock not found"
 # shellcheck disable=SC1091
@@ -72,13 +92,26 @@ source "$REPO_ROOT/versions.lock"
 command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1 \
     || err "cross toolchain missing: ${CROSS_COMPILE}gcc"
 
-# ── Resolve patch ──────────────────────────────────────────────────────
+# ── Resolve upstream commit ────────────────────────────────────────────
 MIRROR="$WORK_DIR/upstream.git"
 [[ -d "$MIRROR" ]] || err "upstream mirror missing; run fetch-upstream.sh first"
 
 ASK_SHA="${UPSTREAM_TARGET:-${UPSTREAM_BASELINE:?}}"
 ASK_SHA=$(git --git-dir="$MIRROR" rev-parse "$ASK_SHA^{commit}" 2>/dev/null) \
     || err "cannot resolve ASK commit: ${UPSTREAM_TARGET:-$UPSTREAM_BASELINE}"
+
+# Verify the upstream mirror has every file we need before doing any work.
+missing=()
+for entry in "${ASK_FILES[@]}"; do
+    src="${entry%%:*}"
+    git --git-dir="$MIRROR" cat-file -e "$ASK_SHA:$src" 2>/dev/null \
+        || missing+=("$src")
+done
+if (( ${#missing[@]} )); then
+    warn "missing in upstream mirror at $ASK_SHA:"
+    for m in "${missing[@]}"; do warn "    $m"; done
+    err "cannot synthesize ASK iptables overlay; check upstream commit"
+fi
 
 # ── Workspace ──────────────────────────────────────────────────────────
 WS="$WORK_DIR/ask-iptables"
@@ -94,19 +127,14 @@ dim "   target arch:    $TARGET_ARCH"
 dim "   cross:          ${CROSS_COMPILE}gcc"
 dim "   revision tag:   $REVISION_SUFFIX"
 dim "   workspace:      $WS"
+dim "   strategy:       copy 8 ASK source files into Debian source tree"
 
 # ── Fetch source package ───────────────────────────────────────────────
 begin_group "apt-get source $SRC_PKG"
-# Use a sub-shell with a narrow CWD so dpkg-source drops files where we want.
 (
     cd "$SRC_ROOT"
-    # Some minimal CI images ship without deb-src entries; make sure we have them.
     if ! apt-cache showsrc "$SRC_PKG" 2>/dev/null | grep -q '^Package:'; then
         warn "no deb-src for $SRC_PKG; attempting to enable"
-        # Enable deb-src for the current suite on a best-effort basis. On
-        # GitHub Actions ubuntu-latest the sources.list has deb-src commented
-        # out; flip the comments on. If this fails we let apt-get source fail
-        # with a clear message.
         if [[ -w /etc/apt/sources.list ]]; then
             sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list || true
             sudo apt-get update -qq || apt-get update -qq || true
@@ -116,45 +144,83 @@ begin_group "apt-get source $SRC_PKG"
 ) > "$WS/apt-source.log" 2>&1 \
     || { warn "apt-get source failed; see $WS/apt-source.log"; tail -40 "$WS/apt-source.log" >&2; err "cannot download $SRC_PKG source"; }
 
-# Locate extracted tree
 SRC_DIR=$(find "$SRC_ROOT" -mindepth 1 -maxdepth 1 -type d -name "${SRC_PKG}-*" | head -1)
 [[ -d "$SRC_DIR" ]] || err "no ${SRC_PKG}-* directory after apt-get source"
-DSC_FILE=$(find "$SRC_ROOT" -maxdepth 1 -name "${SRC_PKG}_*.dsc" | head -1)
-[[ -f "$DSC_FILE" ]] || err "no ${SRC_PKG}_*.dsc after apt-get source"
 UPSTREAM_VER=$(basename "$SRC_DIR" | sed -E "s/^${SRC_PKG}-//")
 ok "fetched $SRC_PKG $UPSTREAM_VER into $(basename "$SRC_DIR")"
 end_group
 
-# ── Extract and apply the ASK patch ─────────────────────────────────────
-begin_group "apply ASK QOSMARK/QOSCONNMARK patch"
-PATCH_FILE="$WS/001-qosmark-extensions.patch"
-git --git-dir="$MIRROR" show "$ASK_SHA:$PATCH_SUBPATH" > "$PATCH_FILE" \
-    || err "cannot extract $PATCH_SUBPATH at $ASK_SHA"
-ok "extracted patch ($(wc -l < "$PATCH_FILE") lines)"
+# ── Copy ASK source files into the Debian source tree ──────────────────
+begin_group "overlay ASK QOSMARK/QOSCONNMARK source files"
+overlay_root="$WS/overlay"
+rm -rf "$overlay_root"
+mkdir -p "$overlay_root"
 
-# Dry-run first so we get a clear error before dirtying the tree.
-if ! (cd "$SRC_DIR" && patch -p1 --dry-run --quiet < "$PATCH_FILE"); then
-    warn "patch does not apply cleanly; showing diagnostic"
-    (cd "$SRC_DIR" && patch -p1 --dry-run < "$PATCH_FILE") 2>&1 | tail -40 >&2
-    exit 2
-fi
-(cd "$SRC_DIR" && patch -p1 --quiet < "$PATCH_FILE") \
-    || err "patch application failed after dry-run succeeded (shouldn't happen)"
-ok "patch applied to $(basename "$SRC_DIR")"
+# Stage the files first under $overlay_root so we can build a single
+# unified diff against the pristine source for debian/patches/series.
+for entry in "${ASK_FILES[@]}"; do
+    src="${entry%%:*}"
+    dst="${entry#*:}"
+    mkdir -p "$overlay_root/$(dirname "$dst")"
+    git --git-dir="$MIRROR" show "$ASK_SHA:$src" > "$overlay_root/$dst"
+done
+ok "staged $(( ${#ASK_FILES[@]} )) files under $overlay_root"
 
-# Record the patch in debian/patches so dpkg-source -b can represent it,
-# falling back to unapplied if quilt is configured for 3.0 (quilt) format.
+# Sanity: every destination must NOT already exist in the Debian source.
+# If it does, upstream Debian or someone before us already added it and
+# our overlay would silently clobber a file we don't want to fight with.
+for entry in "${ASK_FILES[@]}"; do
+    dst="${entry#*:}"
+    if [[ -e "$SRC_DIR/$dst" ]]; then
+        warn "  $dst already exists in $SRC_PKG-$UPSTREAM_VER (will overwrite)"
+    fi
+done
+
+# Copy with directory creation. Preserve permissions defaults.
+for entry in "${ASK_FILES[@]}"; do
+    dst="${entry#*:}"
+    install -D -m 0644 "$overlay_root/$dst" "$SRC_DIR/$dst"
+done
+ok "installed ASK overlay into $(basename "$SRC_DIR")"
+
+# Generate a clean unified diff that adds these files (against /dev/null),
+# so a downstream consumer can reproduce exactly what we changed.
+PATCH_FILE="$WS/0999-ask-qosmark-extensions.patch"
+{
+    printf 'Description: Add NXP ASK QOSMARK/QOSCONNMARK xtables extensions\n'
+    printf ' Copies four new libxt_*.c extension sources and their UAPI\n'
+    printf ' headers from the NXP ASK upstream tree (commit %s).\n' \
+        "${ASK_SHA:0:12}"
+    printf ' These compile into libxt_{qos,QOS}{mark,connmark}.so xtables\n'
+    printf ' plugins shipped inside the iptables binary package.\n'
+    printf 'Origin: upstream, https://github.com/we-are-mono/ASK @ %s\n' \
+        "${ASK_SHA:0:12}"
+    printf 'Forwarded: not-needed\n'
+    printf 'Last-Update: %s\n\n' "$(date +%F)"
+    for entry in "${ASK_FILES[@]}"; do
+        dst="${entry#*:}"
+        printf -- '--- /dev/null\n+++ b/%s\n' "$dst"
+        # Generate the +lines block; count lines for hunk header.
+        nlines=$(wc -l < "$overlay_root/$dst")
+        printf -- '@@ -0,0 +1,%d @@\n' "$nlines"
+        sed 's/^/+/' "$overlay_root/$dst"
+    done
+} > "$PATCH_FILE"
+ok "synthesized debian-style patch ($(wc -l < "$PATCH_FILE") lines)"
+
+# Register the patch in debian/patches/series for 3.0 (quilt) format,
+# so dpkg-source preserves provenance and downstream rebuilds via
+# `dpkg-source -x` regenerate it cleanly.
 if [[ -f "$SRC_DIR/debian/source/format" ]] \
     && grep -q '3.0 (quilt)' "$SRC_DIR/debian/source/format"; then
     mkdir -p "$SRC_DIR/debian/patches"
     cp "$PATCH_FILE" "$SRC_DIR/debian/patches/0999-ask-qosmark-extensions.patch"
-    # Append to series (create if missing)
     touch "$SRC_DIR/debian/patches/series"
     grep -qx '0999-ask-qosmark-extensions.patch' \
         "$SRC_DIR/debian/patches/series" 2>/dev/null \
         || echo '0999-ask-qosmark-extensions.patch' \
             >> "$SRC_DIR/debian/patches/series"
-    ok "registered patch in debian/patches/series"
+    ok "registered overlay in debian/patches/series"
 fi
 end_group
 
@@ -165,12 +231,10 @@ export DEBFULLNAME="${DEBFULLNAME:-ASK LTS 6.6 Autobuilder}"
 NEW_VER="${UPSTREAM_VER}${REVISION_SUFFIX}"
 (
     cd "$SRC_DIR"
-    # dch is part of devscripts; fallback to manual edit if absent.
     if command -v dch >/dev/null 2>&1; then
         dch --distribution "$DIST" --newversion "$NEW_VER" \
             "Apply NXP ASK QOSMARK/QOSCONNMARK extensions from ${ASK_SHA:0:12}."
     else
-        # Manual changelog prepend. Format per deb-changelog(5).
         {
             printf '%s (%s) %s; urgency=medium\n\n' "$SRC_PKG" "$NEW_VER" "$DIST"
             printf '  * Apply NXP ASK QOSMARK/QOSCONNMARK extensions from %s.\n\n' \
@@ -183,6 +247,19 @@ NEW_VER="${UPSTREAM_VER}${REVISION_SUFFIX}"
     fi
 )
 ok "new version: $NEW_VER"
+
+# `dch --newversion` renames the working directory from
+# <pkg>-<ver> to <pkg>-<new_ver>. Re-resolve SRC_DIR.
+NEW_SRC_DIR=$(find "$SRC_ROOT" -mindepth 1 -maxdepth 1 -type d \
+    -name "${SRC_PKG}-${NEW_VER}" | head -1)
+if [[ -n "$NEW_SRC_DIR" && -d "$NEW_SRC_DIR" ]]; then
+    SRC_DIR="$NEW_SRC_DIR"
+elif [[ ! -d "$SRC_DIR" ]]; then
+    SRC_DIR=$(find "$SRC_ROOT" -mindepth 1 -maxdepth 1 -type d \
+        -name "${SRC_PKG}-*" | head -1)
+fi
+[[ -d "$SRC_DIR" ]] || err "source dir vanished after dch (looked for ${SRC_PKG}-${NEW_VER})"
+dim "   source dir now: $(basename "$SRC_DIR")"
 end_group
 
 # ── Cross-build ─────────────────────────────────────────────────────────
@@ -194,7 +271,8 @@ set +e
 (
     cd "$SRC_DIR"
     export DEB_BUILD_OPTIONS="nocheck parallel=$(nproc_any)"
-    export CONFIG_SITE="/etc/dpkg-cross/cross-config.${TARGET_ARCH}"
+    [[ -f "/etc/dpkg-cross/cross-config.${TARGET_ARCH}" ]] \
+        && export CONFIG_SITE="/etc/dpkg-cross/cross-config.${TARGET_ARCH}"
     dpkg-buildpackage \
         --host-arch "$TARGET_ARCH" \
         --build=binary \
@@ -236,6 +314,7 @@ printf '   source:         %s %s\n'    "$SRC_PKG" "$UPSTREAM_VER"
 printf '   new version:    %s\n'       "$NEW_VER"
 printf '   patch commit:   %s\n'       "${ASK_SHA:0:12}"
 printf '   target arch:    %s\n'       "$TARGET_ARCH"
+printf '   ASK files:      %d copied\n' "${#ASK_FILES[@]}"
 printf '   produced:\n'
 for f in "${produced[@]}"; do
     [[ "$f" == *.deb ]] && printf '     %s (%s)\n' \
@@ -243,11 +322,13 @@ for f in "${produced[@]}"; do
 done
 
 # ── Note on what's inside ──────────────────────────────────────────────
-# The four new source files from the upstream patch compile into:
+# The four new extension sources compile into:
 #   /usr/lib/<triple>/xtables/libxt_qosmark.so
 #   /usr/lib/<triple>/xtables/libxt_QOSMARK.so
 #   /usr/lib/<triple>/xtables/libxt_qosconnmark.so
 #   /usr/lib/<triple>/xtables/libxt_QOSCONNMARK.so
 # delivered in the iptables binary package alongside the patched iptables
-# binary. The kernel-side xt_QOSMARK / xt_QOSCONNMARK headers are already
-# installed by the kernel linux-libc-dev .deb (via 003-ask-kernel-hooks.patch).
+# binary. The kernel-side xt_QOSMARK / xt_QOSCONNMARK headers are
+# installed by the kernel linux-libc-dev .deb (via 003-ask-kernel-hooks.patch);
+# the userspace headers we copied here let the extensions build against
+# matching layouts.

@@ -187,6 +187,26 @@ build_one() {
     )
     ok "  version → $new_ver"
 
+    # `dch --newversion` renames the working directory from
+    # <pkg>-<ver> to <pkg>-<new_ver>. Re-resolve src_dir so the
+    # subsequent build runs in the correct place.
+    local new_src_dir
+    new_src_dir=$(find "$src_root" -mindepth 1 -maxdepth 1 -type d \
+        -name "${src_pkg}-${new_ver}" | head -1)
+    if [[ -n "$new_src_dir" && -d "$new_src_dir" ]]; then
+        src_dir="$new_src_dir"
+    elif [[ ! -d "$src_dir" ]]; then
+        # Fallback: pick the only remaining ${src_pkg}-* dir
+        src_dir=$(find "$src_root" -mindepth 1 -maxdepth 1 -type d \
+            -name "${src_pkg}-*" | head -1)
+    fi
+    if [[ -z "$src_dir" || ! -d "$src_dir" ]]; then
+        warn "  $src_pkg: source dir vanished after changelog bump"
+        FAIL_SUMMARY+=("$src_pkg: src dir lost post-dch")
+        end_group
+        return 1
+    fi
+
     # 6. Cross-build
     local build_log="$sub/build.log"
     info "  cross-building for $TARGET_ARCH (log: $build_log)"

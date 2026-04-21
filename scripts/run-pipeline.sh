@@ -120,6 +120,28 @@ run_step_softfail() {
     fi
 }
 
+# "ship what builds" softfail: NEVER aborts the pipeline on any exit code.
+# Used for the optional ASK extras layers where a single broken layer
+# must not lose the kernel .debs (philosophy: report status, keep going).
+run_step_tolerate_all() {
+    local label="$1"; shift
+    _step_begin "$label"
+    dim "   \$ $*"
+    if (( DRY_RUN )); then
+        LAST_EXIT=0
+        _step_end
+        return 0
+    fi
+    set +e
+    "$@"
+    LAST_EXIT=$?
+    set -e
+    _step_end
+    if (( LAST_EXIT != 0 )); then
+        warn "step '$label' returned exit $LAST_EXIT (tolerated; see summary)"
+    fi
+}
+
 # ── Banner ──────────────────────────────────────────────────────────────
 echo
 ok "ASK lts_6.6_ls1046a — pipeline starting"
@@ -291,7 +313,8 @@ if (( DO_ASK_EXTRAS )); then
 
         # Layer 3 + 4: patched iptables + QOSMARK/QOSCONNMARK xtables plugins
         # (Single Debian source rebuild; independent of FMan SDK.)
-        run_step_softfail 1 "build patched iptables (+libxt_QOSMARK/QOSCONNMARK)" \
+        # Tolerate any exit so a layer-3 failure cannot lose the kernel .debs.
+        run_step_tolerate_all "build patched iptables (+libxt_QOSMARK/QOSCONNMARK)" \
             "$SCRIPTS_DIR/build-ask-iptables.sh"
         if (( LAST_EXIT == 0 )); then
             if compgen -G "$WORK_DIR/build/iptables_*+ask*_arm64.deb" >/dev/null; then
@@ -305,8 +328,9 @@ if (( DO_ASK_EXTRAS )); then
 
         # Layer 5: ppp + rp-pppoe NXP/ASK patches (PPPoE offload / CMM relay)
         # Two independent Debian source rebuilds; partial success is tolerated.
-        # Exit 2 = patch rejected (hard failure); exit 1 = all builds failed.
-        run_step_softfail 2 "build patched ppp + rp-pppoe (NXP ASK offload/CMM)" \
+        # Tolerate any exit so a layer-5 failure cannot lose the kernel .debs
+        # or the ask-iptables build that ran before it.
+        run_step_tolerate_all "build patched ppp + rp-pppoe (NXP ASK offload/CMM)" \
             "$SCRIPTS_DIR/build-ask-ppp.sh"
         if (( LAST_EXIT == 0 )); then
             _ppp_built=0; _pppoe_built=0
