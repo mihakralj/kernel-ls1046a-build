@@ -18,8 +18,13 @@ Beautiful. Also frozen in time.
 
 This repo is the engine that keeps that translation honest. It watches the
 6.12 upstream for new commits, classifies them, re-derives the 6.6 patch set,
-verifies the output applies to a fresh kernel tarball, and cross-compiles
-Debian packages for the NXP LS1046A. All of it driven by one entry point.
+verifies the output applies to a fresh kernel tarball, and builds Debian
+packages for the NXP LS1046A. All of it driven by one entry point.
+
+CI runs natively on GitHub-hosted **arm64** runners (`ubuntu-24.04-arm`), so
+the kernel and every userspace `.deb` is a straight native compile. No cross
+toolchain, no foreign-arch apt juggling, no `dpkg-cross`. The scripts still
+accept `CROSS_COMPILE=` for anyone who wants to build from an x86_64 dev box.
 
 ## Table of contents
 
@@ -41,7 +46,7 @@ lts_6.6_ls1046a/
 ├── release/              # committed last-known-good artefacts (tracked)
 ├── work/                 # everything the scripts produce (gitignored)
 ├── versions.lock         # pinned inputs: upstream SHA, baseline, paths
-├── .github/workflows/    # CI: cross-compile + release on tag push
+├── .github/workflows/    # CI: native arm64 build + release on tag push
 └── LICENSE               # GPL-2.0, same as VyOS and mono-ASK
 ```
 
@@ -56,7 +61,8 @@ you end up rebuilding the world on every PR review.
 
 ## The pipeline
 
-Nine steps. `run-pipeline.sh` is the only entry point you should call.
+`run-pipeline.sh` is the only entry point you should call. Everything else
+is a building block.
 
 ```text
 ┌─ 1. fetch-kernel.sh ──────┐
@@ -76,10 +82,16 @@ Nine steps. `run-pipeline.sh` is the only entry point you should call.
      7. publish-release.sh   (opt-in) promote work/derived/ → release/
             │
             ▼
-     8. apply-to-tree.sh     (opt-in) wet-run: turn kernel tree into ASK tree
+     8a. apply-to-tree.sh    (opt-in) wet-run: turn kernel tree into ASK tree
             │
             ▼
-        build-kernel.sh      (opt-in) cross-compile → work/build/*.deb
+         build-kernel.sh     (opt-in) native arm64 → work/build/*.deb
+            │
+            ▼
+     8b. ASK extras          (opt-in, --ask-extras, soft-fail)
+         ├── build-ask-modules.sh   (OOT cdx/fci/auto_bridge .ko → single .deb)
+         ├── build-ask-iptables.sh  (patched iptables source rebuild + xtables)
+         └── build-ask-ppp.sh       (patched ppp + rp-pppoe source rebuilds)
             │
             ▼
      9. publish-binaries.sh  (opt-in) → GitHub Release
@@ -90,6 +102,16 @@ something breaks, you know which step did it. When nothing's changed, each
 step sees its cache and returns in under a second. That part matters: the
 fetcher contract is exit 0 (unchanged) / exit 10 (changed / new). The
 orchestrator reads those and builds the summary.
+
+### Soft-fail policy for ASK extras (step 8b)
+
+The kernel `.debs` are the load-bearing artefact. The extras (modules,
+patched iptables, patched ppp/rp-pppoe) can fail for distro-specific reasons
+without that being a reason to lose a green kernel build. `run-pipeline.sh`
+therefore invokes each extra through `run_step_tolerate_all`: a helper that
+warns loudly on non-zero exit but never aborts the pipeline. The final
+summary reports per-layer status (`built`, `skipped (precondition)`,
+`failed`) and the kernel `.debs` are always uploaded.
 
 ### Why this shape
 
@@ -115,8 +137,8 @@ and the last thing you want is a monolith.
 | `publish-release.sh` | `work/derived/` | `release/` (overwrite) | 0 published, 1 precondition failed, 2 `--check` sees drift |
 | `apply-to-tree.sh` | kernel tree + source fallback | kernel tree with SDK copied, patch applied, `.ask-applied` marker | 0 / 1 |
 | `build-kernel.sh` | ASK-applied tree | `work/build/*.deb` + `build.log` | 0 / 1 |
-| `build-ask-modules.sh` | ASK-applied tree + `work/upstream.git/` | `work/build/ask-modules-*.deb` (cdx/fci/auto_bridge OOT `.ko`s) | 0 built **or** skipped (SDK precondition), 1 fail |
-| `build-ask-iptables.sh` | Debian `iptables` source + `work/upstream.git/` | `work/build/iptables_*+ask*_arm64.deb` (+ `libxtables12`, `libip[46]tc2`, `iptables-dev`) with QOSMARK/QOSCONNMARK | 0 / 1 / 2 (patch fails to apply) |
+| `build-ask-modules.sh` | ASK-applied tree + `work/upstream.git/` | `work/build/ask-modules-*_arm64.deb` (cdx/fci/auto_bridge OOT `.ko`s) | 0 built **or** skipped (SDK precondition), 1 fail |
+| `build-ask-iptables.sh` | Debian `iptables` source + `work/upstream.git/` | `work/build/iptables_*+ask*_arm64.deb` (+ `libxtables12`, `libip[46]tc2`, `iptables-dev`) with QOSMARK/QOSCONNMARK baked in | 0 / 1 / 2 (patch fails to apply) |
 | `build-ask-ppp.sh` | Debian `ppp` + `rp-pppoe` sources + `patches/{ppp,rp-pppoe}/` | `work/build/ppp_*+ask*_arm64.deb`, `work/build/pppoe_*+ask*_arm64.deb` (NXP ifindex fix, CMM relay) | 0 (any sub-build ok) / 1 (all failed) / 2 (patch rejected) |
 | `publish-binaries.sh` | `work/build/` + `release/manifest.json` | GitHub Release tagged `kernel-<ver>-askN` | 0 / 1 |
 | `run-pipeline.sh` | all of the above | orchestrated run + summary | 0 ok, 1 health fail, 2 T2-no-derive, 3 needs-review, 4 build fail, 5 publish-bin fail |
@@ -178,9 +200,10 @@ work/build/
 └── build.log                                       # full compile log
 ```
 
-Cross-compiled on an x86_64 host via `gcc-aarch64-linux-gnu` and
-`make bindeb-pkg`. Tested. Stripped of the host-leaking `output_dir` before
-upload. Gitignored.
+Built natively on an arm64 runner via `make bindeb-pkg` (or cross-compiled
+locally with `CROSS_COMPILE=aarch64-linux-gnu-` if you're on an x86_64 dev
+box — both code paths go through the same scripts). Tested. Stripped of
+the host-leaking `output_dir` before upload. Gitignored.
 
 ### GitHub Releases (permanent, consumable)
 
@@ -209,9 +232,9 @@ behind a feature flag.
 |---|---|---|---|---|
 | 0 | **Kernel image** (always) | `linux-image-*`, `linux-headers-*`, `linux-libc-dev`, debug — ASK hooks compiled in | *(default)* | ✅ Shipping |
 | 1 | **OOT kernel modules** | `cdx`, `fci`, `auto_bridge` — the drivers that register on the hook sites | `--ask-extras` | ⏸ Blocked (see below) |
-| 2 | **Userspace daemons** | `fmc` (FMan configurator), `cmm` (conn-track/manip), `dpa_app` — XML policy → silicon | `--ask-extras` | ⏸ Blocked (same reason) |
-| 3+4 | **Patched `iptables` + xtables plugins** | Single Debian source rebuild: patched iptables binaries **and** `libxt_QOSMARK.so`, `libxt_QOSCONNMARK.so` | `--ask-extras` | 🟢 Script implemented — pending first green CI run |
-| 5 | **Patched `ppp` + `rp-pppoe`** | PPP ifindex fix + rp-pppoe CMM relay patches for PPPoE fast-path | `--ask-extras` | 🟢 Script implemented — pending first green CI run |
+| 2 | **Userspace daemons** | `fmc` (FMan configurator), `cmm` (conn-track/manip), `dpa_app` — XML policy → silicon | `--ask-extras` | 🟡 Not yet scripted |
+| 3+4 | **Patched `iptables` + xtables plugins** | Single Debian source rebuild: patched iptables binaries **and** `libxt_QOSMARK.so`, `libxt_QOSCONNMARK.so` | `--ask-extras` | 🟢 Shipping |
+| 5 | **Patched `ppp` + `rp-pppoe`** | PPP ifindex fix + rp-pppoe CMM relay patches for PPPoE fast-path | `--ask-extras` | 🟢 Shipping |
 
 Legend: ✅ built and released · 🟢 implemented (CI verification pending) ·
 🟡 planned · ⏸ precondition blocked.
@@ -226,7 +249,7 @@ Legend: ✅ built and released · 🟢 implemented (CI verification pending) ·
 ### What `--ask-extras` runs
 
 Pipeline step 8b. After a successful kernel build, each extra is attempted
-in sequence under `run_step_softfail`: a failure in one layer does not
+in sequence under `run_step_tolerate_all`: a failure in one layer does not
 block the others or the kernel `.debs`. The summary reports per-layer
 status (`built`, `skipped (precondition)`, `failed`). Philosophy: ship
 what builds, flag what doesn't, never lose the kernel over a userspace bug.
@@ -265,25 +288,59 @@ consume patches from `work/upstream.git` (`patches/iptables/`,
 They do not depend on the FMan SDK and build on any runner with the
 Debian build toolchain available.
 
-`scripts/build-ask-iptables.sh` implements layers 3+4: it runs
-`apt-get source iptables`, extracts
-`patches/iptables/001-qosmark-extensions.patch` from the upstream
-mirror, registers it in `debian/patches/series`, bumps the Debian
-version with an `+ask1` suffix, and cross-builds for `arm64` via
-`dpkg-buildpackage --host-arch arm64 --build=binary`. Output: the
-standard Debian iptables `.deb` set (`iptables`, `libxtables12`,
-`libip4tc2`, `libip6tc2`, `iptables-dev`) rebuilt with the QOSMARK
-extensions baked in.
+`scripts/build-ask-iptables.sh` implements layers 3+4. Upstream ASK does
+**not** ship a `patches/iptables/*.patch`; instead it provides the four new
+xtables extension sources (`libxt_{qos,QOS}{mark,connmark}.c`) and the
+matching kernel-UAPI headers under `iptables-extensions/`. The script:
+
+1. `apt-get source iptables` into a clean workspace.
+2. Copies the eight files from the upstream mirror into the Debian source
+   tree (extensions auto-discover via the Debian `iptables` build).
+3. Synthesises a clean unified diff for provenance, registers it in
+   `debian/patches/series` for 3.0 (quilt) source format.
+4. `dch --newversion <ver>+ask1` and runs `dpkg-buildpackage --build=binary`
+   natively (or cross if `DEB_HOST_ARCH != arm64`).
+
+Output: the standard Debian iptables `.deb` set (`iptables`, `libxtables12`,
+`libip4tc2`, `libip6tc2`, `iptables-dev`) rebuilt with the QOSMARK /
+QOSCONNMARK extensions baked in.
+
+`scripts/build-ask-ppp.sh` implements layer 5. It iterates the two source
+packages (`ppp`, `rp-pppoe`) independently — each sub-build has its own
+`debian/patches/0999-ask.patch` extracted from the upstream mirror
+(`patches/ppp/01-nxp-ask-ifindex.patch`,
+`patches/rp-pppoe/01-nxp-ask-cmm-relay.patch`). A dry-run gate rejects
+upfront if a patch no longer applies; partial success (e.g. `ppp` built
+but `rp-pppoe` failed) still exits 0 so the pipeline proceeds.
 
 ## Quick start
 
 ### Prerequisites
 
+Running natively on an arm64 host (the CI path):
+
+```bash
+apt install -y \
+  build-essential libssl-dev bc flex bison libelf-dev \
+  fakeroot kmod dpkg-dev rsync cpio \
+  debhelper devscripts quilt \
+  libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev \
+  libpam0g-dev libpcap0.8-dev libsystemd-dev zlib1g-dev ppp-dev \
+  git jq curl patch gh
+```
+
+Running on an x86_64 dev box (cross-build; scripts honour `CROSS_COMPILE`):
+
 ```bash
 apt install -y \
   gcc-aarch64-linux-gnu libssl-dev bc flex bison libelf-dev \
-  fakeroot kmod dpkg-dev rsync cpio \
+  fakeroot kmod dpkg-dev dpkg-cross rsync cpio \
   git jq curl patch gh
+sudo dpkg --add-architecture arm64 && sudo apt-get update
+# plus :arm64 variants of the -dev libs above if you want to build the
+# iptables/ppp extras locally; the kernel itself builds with just
+# gcc-aarch64-linux-gnu.
+export CROSS_COMPILE=aarch64-linux-gnu-
 ```
 
 ### Typical runs
@@ -331,10 +388,12 @@ ls work/derived/reconciliation/
 - **`workflow_dispatch`**: manual build; optional publish checkbox.
 - **Push tag `kernel-*`**: build and auto-publish the GitHub Release.
 
-Cross-compile happens on `ubuntu-latest` (x86_64) with
-`CROSS_COMPILE=aarch64-linux-gnu-`. No self-hosted arm64 runner needed.
-Workflow artefacts retained 30 days on every run regardless of publish
-status, so you can always grab the `.deb`s from a build without promoting it.
+The job runs on `ubuntu-24.04-arm` — GitHub's hosted arm64 Linux runner,
+free for public repos — so the kernel and all userspace `.debs` build
+natively. No cross toolchain, no `ports.ubuntu.com` pinning, no
+foreign-arch apt setup: the runner IS arm64. Workflow artefacts are
+retained 30 days on every run regardless of publish status, so you can
+always grab the `.deb`s from a build without promoting it.
 
 Tagging protocol:
 
