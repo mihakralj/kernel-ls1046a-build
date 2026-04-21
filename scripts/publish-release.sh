@@ -74,7 +74,20 @@ trap 'rm -rf "$STAGE"' EXIT
 
 mkdir -p "$STAGE/patches/kernel"
 cp -r "$SRC/patches/kernel/." "$STAGE/patches/kernel/"
-cp    "$SRC/ask.config"       "$STAGE/"
+
+# ask.config: the reference repo's fragment enables CONFIG_CPE_FAST_PATH +
+# CONFIG_INET_IPSEC_OFFLOAD, but those hooks are incomplete on 6.6.y and
+# break the build (e.g. `struct sk_buff has no member 'ipsec_offload'` when
+# CONFIG_INET_IPSEC_OFFLOAD is unknown to Kconfig and olddefconfig drops
+# it). We therefore PRESERVE any existing release/ask.config — it
+# represents manual 6.6-specific surgical disables that must survive
+# republish. The reference copy is only used to seed a pristine release/.
+if [[ -f "$DST/ask.config" ]]; then
+    dim "preserving existing release/ask.config (hand-tuned for 6.6.y)"
+    cp "$DST/ask.config" "$STAGE/"
+else
+    cp "$SRC/ask.config" "$STAGE/"
+fi
 cp    "$SRC/manifest.json"    "$STAGE/"
 
 # ── Check mode: diff staged vs committed, no writes ─────────────────────
