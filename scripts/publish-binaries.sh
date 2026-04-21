@@ -64,18 +64,21 @@ REPO_SLUG="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || 
 [[ -n "$REPO_SLUG" ]] || err "cannot resolve GitHub repo slug (cd into a cloned repo)"
 
 # ── Kernel version detection ────────────────────────────────────────────
-# Pull kver from the first .deb filename, falling back to work/.kernel-version.
+# Pull kver from a linux-image-*/linux-headers-* .deb filename (ignore userspace
+# .debs like iptables_1.8.10+ask1_... whose upstream version looks like a kver),
+# falling back to work/.kernel-version.
 KVER=""
 for d in "${DEBS[@]}"; do
     n="$(basename "$d")"
-    # linux-image-6.6.123-ask_6.6.123-1_arm64.deb
-    if [[ "$n" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-        KVER="${BASH_REMATCH[1]}"
+    # e.g. linux-image-6.6.135-ask_6.6.135-1_arm64.deb
+    #      linux-headers-6.6.135-ask_6.6.135-1_arm64.deb
+    if [[ "$n" =~ ^linux-(image|headers)-([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+        KVER="${BASH_REMATCH[2]}"
         break
     fi
 done
 [[ -z "$KVER" && -f "$WORK_DIR/.kernel-version" ]] && KVER=$(cat "$WORK_DIR/.kernel-version")
-[[ -n "$KVER" ]] || err "cannot determine kernel version from .deb names or work/.kernel-version"
+[[ -n "$KVER" ]] || err "cannot determine kernel version from linux-image/linux-headers .deb names or work/.kernel-version"
 
 # ── Auto-compute tag (next -askN for this kver) ─────────────────────────
 if [[ -z "$TAG" ]]; then
