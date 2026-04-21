@@ -1,6 +1,6 @@
 # lts_6.6_ls1046a
 
-> The 6.12 kernel that NXP's Application Solutions Kit ships is a beautiful thing. It is also useless to anyone standing on a 6.6 LTS shoreline watching the ship sail past. This repo is the rowboat.
+> The 6.12 NXP kernel that Mono ships is a beautiful thing. It is also useless to anyone standing on a 6.6 LTS shoreline watching the ship sail past. This repo is the rowboat.
 
 Mono's NXP [ASK (Application Solutions Kit)][ask-upstream] is a patch set that bolts fast-path networking onto Layerscape SoCs: the DPAA SDK driver stack, netfilter-offload hooks, IPsec crypto-engine plumbing, the works. It targets whichever kernel Mono happened to be building against. Right now that's 6.12.
 
@@ -91,7 +91,7 @@ is a building block.
 
 Each step in the backporting process has a purpose, a precondition, and a single responsibility. When something breaks, you know which step did it. When nothing's changed, each step sees its cache and returns in under a second. That part matters: the fetcher contract is exit 0 (unchanged) / exit 10 (changed / new). The orchestrator reads those and builds the summary.
 
-Note on `derive-patches.sh`: the script name is historical — it does **not** rebuild patches from 6.12 + delta. "Simple diff-of-diffs + patch" does not work across a two-point-release kernel gap. What it does do: copy the 6.6 reference through as a passthrough, detect any upstream-delta files that have drifted against the reference, and emit per-file reconciliation bundles for a human to port manually. Manifest status reflects that (`ok` when no drift, `needs_review` when the maintainer has bundles to work through).
+Note on `derive-patches.sh`: the script name is historical — it does **not** rebuild patches from 6.12 + delta. "Simple diff-of-diffs + patch" does not work across a two-point-release kernel gap. What it does do: pass the 6.6 reference patch through `scripts/normalize-patch.awk` (which repairs malformed zero-prefix context lines emitted by some upstream editors so `git apply` accepts the hunks strictly), detect any upstream-delta files that have drifted against the reference, and emit per-file reconciliation bundles for a human to port manually. Manifest status reflects that (`ok` when no drift, `needs_review` when the maintainer has bundles to work through).
 
 ### Soft-fail policy for ASK extras (step 8b)
 
@@ -118,9 +118,10 @@ The common question is "what is the right order of calling these scripts?" The h
 | `fetch-reference.sh` | `REFERENCE_REPO` | `work/reference/` (full clone) | 0 / 10 |
 | `fetch-upstream.sh` | `UPSTREAM_REPO` | `work/upstream.git/` (bare mirror) | 0 / 10 |
 | `sync-upstream.sh` | baseline SHA → HEAD delta | classified commit list, written to stderr | 0 clean, 2 T2 work pending |
-| `derive-patches.sh` | ref SHA + upstream delta | `work/derived/` (reference passthrough + per-file reconciliation bundles when drift exists) + `manifest.json` | 0 (status in manifest: `ok` / `needs_review`) |
+| `derive-patches.sh` | ref SHA + upstream delta | `work/derived/` (normalized reference + per-file reconciliation bundles when drift exists) + `manifest.json` | 0 (status in manifest: `ok` / `needs_review`) |
 | `patch-health.sh` | `work/derived/` → `release/` → `work/reference/` | dry-run report, `work/patch-health.txt` | 0 apply clean, 1 rejects |
-| `publish-release.sh` | `work/derived/` | `release/` (overwrite) | 0 published, 1 precondition failed, 2 `--check` sees drift |
+| `publish-release.sh` | `work/derived/` | `release/` (overwrite, see preserve-on-republish) | 0 published, 1 precondition failed, 2 `--check` sees drift |
+| `normalize-patch.awk` | unified-diff on stdin | normalized diff on stdout (leading spaces restored on zero-prefix body lines) | n/a (filter) |
 | `apply-to-tree.sh` | kernel tree + source fallback | kernel tree with SDK copied, patch applied, `.ask-applied` marker | 0 / 1 |
 | `build-kernel.sh` | ASK-applied tree | `work/build/*.deb` + `build.log` | 0 / 1 |
 | `build-ask-modules.sh` | ASK-applied tree + `work/upstream.git/` | `work/build/ask-modules-*_arm64.deb` (cdx/fci/auto_bridge OOT `.ko`s) | 0 built **or** skipped (SDK precondition), 1 fail |
@@ -130,6 +131,15 @@ The common question is "what is the right order of calling these scripts?" The h
 | `run-pipeline.sh` | all of the above | orchestrated run + summary | 0 ok, 1 health fail, 2 T2-no-derive, 3 needs-review, 4 build fail, 5 publish-bin fail |
 | `common.sh` | n/a (sourced) | helpers: classify, split, fetch-state | n/a |
 | `split-reference-patch.sh` | `work/reference/patches/kernel/*.patch` | per-file chunk bundles (grooming aid) | out-of-band, never in pipeline |
+
+### Preserve-on-republish
+
+`publish-release.sh` **will not clobber** two classes of hand-tuned artefacts:
+
+- `release/ask.config` — kernel config fragment. Edits like surgical `# CONFIG_X is not set` lines survive re-runs.
+- `release/patches/kernel/*.patch` — once the file exists in `release/`, republish leaves it alone.
+
+This matters because some entries carry guards (`#ifdef CONFIG_CPE_FAST_PATH` around `skb->underlying_vlan_tci`, etc.) that the reference-repo version does not have. Bootstrapping a fresh `release/` from scratch still works — the guards kick in only when the target file is already present. To force a refresh, delete the file first, then republish.
 
 ### Tier classification
 
