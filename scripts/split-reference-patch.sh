@@ -28,7 +28,7 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-need awk diff cat
+need filterdiff lsdiff diff cat
 
 [[ -f "$REPO_ROOT/versions.lock" ]] || err "versions.lock not found"
 # shellcheck disable=SC1091
@@ -117,6 +117,9 @@ info "Classifying files in monolithic kernel patch…"
 declare -a UNCLASSIFIED=()
 
 # collect unique paths → buckets  (bash 3.2 compat: parallel arrays)
+# lsdiff --strip=1 is the canonical way to enumerate b-side paths;
+# replaces `grep '^diff --git' | awk | sed` and correctly handles renames,
+# mode-change blocks, and binary patches that the manual parser would miss.
 PATHS=()
 BUCKETS=()
 while IFS= read -r path; do
@@ -125,7 +128,7 @@ while IFS= read -r path; do
     PATHS+=("$path")
     BUCKETS+=("$b")
     [[ "$b" == "UNCLASSIFIED" ]] && UNCLASSIFIED+=("$path")
-done < <(grep '^diff --git' "$MONOLITH" | awk '{print $3}' | sed 's|^a/||' | sort -u)
+done < <(lsdiff --strip=1 "$MONOLITH" | sort -u)
 
 TOTAL=${#PATHS[@]}
 info "   total files in patch:  $TOTAL"
@@ -155,49 +158,20 @@ fi
 info ""
 info "Splitting monolithic patch into thematic sub-patches…"
 
-# Build a lookup function "path → bucket" for awk via a temp mapping file
-MAP="$OUT/_path-to-bucket.map"
-: > "$MAP"
-for ((i=0; i<TOTAL; i++)); do
-    printf '%s\t%s\n' "${PATHS[i]}" "${BUCKETS[i]}" >> "$MAP"
-done
+# For each bucket, build a filterdiff argv of -i globs (one pair per path:
+# 'a/<path>' and 'b/<path>') and let filterdiff carve out the relevant
+# diff-git blocks from the monolith in a single pass. This replaces the
+# previous hand-rolled awk splitter with the canonical patchutils tool.
+for bucket in build core-net bridge tunnels ipv4 ipv6 xfrm netfilter ppp usbnet wireless caam; do
+    # Collect paths belonging to this bucket
+    args=()
+    for ((i=0; i<TOTAL; i++)); do
+        if [[ "${BUCKETS[i]}" == "$bucket" ]]; then
+            args+=( -i "a/${PATHS[i]}" -i "b/${PATHS[i]}" )
+        fi
+    done
+    (( ${#args[@]} )) || continue
 
-# awk splits the monolith by reading the map first, then streaming the patch
-# and directing each diff block to "<OUT>/bucket-<name>.raw".
-awk -v outdir="$OUT" -v mapfile="$MAP" '
-    BEGIN {
-        while ((getline line < mapfile) > 0) {
-            n = index(line, "\t")
-            p = substr(line, 1, n-1)
-            b = substr(line, n+1)
-            map[p] = b
-        }
-        close(mapfile)
-        current_out = ""
-    }
-    function open_for(path,    bucket, file) {
-        bucket = map[path]
-        if (bucket == "") {
-            print "ERROR: unmapped path: " path > "/dev/stderr"
-            exit 2
-        }
-        current_out = outdir "/bucket-" bucket ".raw"
-        return current_out
-    }
-    /^diff --git a\/[^ ]+ b\/[^ ]+/ {
-        # Second captured path
-        p = $3
-        sub(/^a\//, "", p)
-        open_for(p)
-    }
-    current_out != "" { print > current_out }
-' "$MONOLITH"
-
-# Turn each raw bucket file into a properly-headered patch under the agreed
-# stage-numbered name.
-while IFS=$'\t' read -r bucket desc; do
-    raw="$OUT/bucket-$bucket.raw"
-    [[ -f "$raw" ]] || continue
     stage_desc=$(stage_of "$bucket")
     stage="${stage_desc%%:*}"
     desc="${stage_desc#*:}"
@@ -206,51 +180,59 @@ while IFS=$'\t' read -r bucket desc; do
         echo "# ${stage}-ask-${bucket}.patch"
         echo "# ${desc}"
         echo "#"
-        echo "# Extracted from 003-ask-kernel-hooks.patch by scripts/split-reference-patch.sh."
-        echo "# Do not edit by hand without also updating the splitter's path→bucket map."
+        echo "# Extracted from 003-ask-kernel-hooks.patch by scripts/split-reference-patch.sh"
+        echo "# (filterdiff from patchutils). Do not edit by hand without also updating"
+        echo "# the splitter's path→bucket map."
         echo "#"
-        cat "$raw"
+        filterdiff "${args[@]}" "$MONOLITH"
     } > "$out"
-    dim "   $out  ($(wc -l < "$raw") lines)"
-    rm -f "$raw"
-done < <(printf '%s\n' build core-net bridge tunnels ipv4 ipv6 xfrm netfilter ppp usbnet wireless caam \
-         | awk '{print $0 "\t"}')
-
-rm -f "$MAP"
+    dim "   $out  ($(wc -l < "$out") lines)"
+done
 
 # ── Pass 3: verify round-trip ──────────────────────────────────────────
 info ""
 info "Verifying split is lossless (concat == original)…"
 RECON="$OUT/reconstructed.patch"
-# Concatenate in the same order files were seen in the original. Because each
-# bucket preserves intra-bucket order but we're concatenating across buckets,
-# line-for-line equality is NOT expected; what we CAN verify is that the set of
-# (diff --git … / hunk-header / body-line) triples is identical.
-# -h suppresses the filename: prefix grep adds when given multiple files.
+# Concatenate all split patches (stripping our '#' annotation lines) into a
+# single stream. Line-for-line equality with the monolith is NOT expected —
+# intra-bucket ordering is preserved, but across buckets the ordering differs.
+#
+# What we CAN verify losslessness on:
+#   (a) the SET OF PATHS touched (via lsdiff, which correctly finds new-file
+#       blocks even when filterdiff drops the 'diff --git' header line)
+#   (b) the total count of '+' and '-' content lines (ignoring +++ / --- file
+#       headers). These must match exactly.
 grep -hv '^#' "$OUT/patches/kernel/"*.patch > "$RECON"
-# Normalise both for comparison: strip blob-SHA index lines which are identical
-# in both anyway, and sort by (filepath, hunk). Simpler check: same line count
-# (minus headers) + same set of `diff --git` lines.
-orig_diffs=$(grep -c '^diff --git' "$MONOLITH")
-new_diffs=$(grep -c '^diff --git' "$RECON")
+
+orig_paths=$(lsdiff --strip=1 "$MONOLITH"  | sort -u)
+new_paths=$( lsdiff --strip=1 "$RECON"     | sort -u)
+orig_count=$(printf '%s\n' "$orig_paths" | wc -l)
+new_count=$( printf '%s\n' "$new_paths"  | wc -l)
+
 # grep -c can exit 1 on zero matches; || true keeps set -e happy.
-# Also count ONLY true diff content lines (hunks start with space, +, or -),
-# avoiding the 'diff --git' / '+++' / '---' header lines which would inflate
-# the count asymmetrically.
-orig_pluslines=$(grep -c '^+[^+]'   "$MONOLITH" || true)
-new_pluslines=$( grep -c '^+[^+]'   "$RECON"    || true)
+orig_pluslines=$( grep -c '^+[^+]'  "$MONOLITH" || true)
+new_pluslines=$(  grep -c '^+[^+]'  "$RECON"    || true)
 orig_minuslines=$(grep -c '^-[^-]'  "$MONOLITH" || true)
 new_minuslines=$( grep -c '^-[^-]'  "$RECON"    || true)
 
-printf "   diff-git blocks:  original=%d   split=%d\n"  "$orig_diffs"     "$new_diffs"
+printf "   paths touched:    original=%d   split=%d\n"  "$orig_count"     "$new_count"
 printf "   '+' lines:        original=%d   split=%d\n"  "$orig_pluslines" "$new_pluslines"
 printf "   '-' lines:        original=%d   split=%d\n"  "$orig_minuslines" "$new_minuslines"
 
-if [[ "$orig_diffs" == "$new_diffs" \
-   && "$orig_pluslines" == "$new_pluslines" \
-   && "$orig_minuslines" == "$new_minuslines" ]]; then
-    ok "round-trip OK: split preserves every file block and every +/- line"
+paths_match=0
+if [[ "$(printf '%s\n' "$orig_paths")" == "$(printf '%s\n' "$new_paths")" ]]; then
+    paths_match=1
+fi
+
+if (( paths_match )) \
+   && [[ "$orig_pluslines" == "$new_pluslines" \
+      && "$orig_minuslines" == "$new_minuslines" ]]; then
+    ok "round-trip OK: split preserves every path and every +/- line"
 else
+    # Surface exactly which paths differ for faster diagnosis.
+    if (( ! paths_match )); then
+        diff <(printf '%s\n' "$orig_paths") <(printf '%s\n' "$new_paths") | sed 's/^/     /'
+    fi
     err "round-trip MISMATCH: split is lossy — aborting"
 fi
 
