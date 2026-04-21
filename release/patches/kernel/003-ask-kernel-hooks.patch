@@ -1168,30 +1168,26 @@ index cc54b8267bcc..7bbf9f40a055 100644
  
  	if (p && (p->flags & BR_VLAN_TUNNEL) &&
  	    br_handle_egress_vlan_tunnel(skb, v)) {
-@@ -600,6 +612,11 @@ static bool __allowed_ingress(const struct net_bridge *br,
-			 */
-			skb->vlan_tci |= pvid;
-
-+#ifdef CONFIG_CPE_FAST_PATH
-+			if(!skb->underlying_vlan_tci)
-+				skb->underlying_vlan_tci = skb_vlan_tag_get(skb);
-+#endif
+@@ -600,6 +612,9 @@ static bool __allowed_ingress(const struct net_bridge *br,
+ 			 */
+ 			skb->vlan_tci |= pvid;
+ 
++		if(!skb->underlying_vlan_tci)
++			skb->underlying_vlan_tci = skb_vlan_tag_get(skb);
 +
-		/* if snooping and stats are disabled we can avoid the lookup */
-		if (!br_opt_get(br, BROPT_MCAST_VLAN_SNOOPING_ENABLED) &&
-		    !br_opt_get(br, BROPT_VLAN_STATS_ENABLED)) {
-@@ -629,6 +646,11 @@ static bool __allowed_ingress(const struct net_bridge *br,
-		u64_stats_update_end(&stats->syncp);
-	}
-
-+#ifdef CONFIG_CPE_FAST_PATH
+ 		/* if snooping and stats are disabled we can avoid the lookup */
+ 		if (!br_opt_get(br, BROPT_MCAST_VLAN_SNOOPING_ENABLED) &&
+ 		    !br_opt_get(br, BROPT_VLAN_STATS_ENABLED)) {
+@@ -629,6 +644,9 @@ static bool __allowed_ingress(const struct net_bridge *br,
+ 		u64_stats_update_end(&stats->syncp);
+ 	}
+ 
 +	if(!skb->underlying_vlan_tci)
 +		skb->underlying_vlan_tci = skb_vlan_tag_get(skb);
-+#endif
 +
-	*vlan = v;
-
-	return true;
+ 	*vlan = v;
+ 
+ 	return true;
 diff --git a/net/core/dev.c b/net/core/dev.c
 index 56b6797589f5..4612c083086c 100644
 --- a/net/core/dev.c
