@@ -27,7 +27,7 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-need patch find cp make
+need git find cp make
 
 SOURCE=""
 VERSION_ARG=""
@@ -118,9 +118,21 @@ done < <(cd "$SDK_DIR" && find . -type f | sed 's|^\./||')
 ok "copied $SDK_COUNT SDK file(s)"
 
 # ── Step 2: apply hooks patch ───────────────────────────────────────────
+# Use `git apply` instead of `patch`. Advantages:
+#   - zero fuzz by default (refuses to guess if context drifts)
+#   - uniform behaviour with patch-health.sh (`git apply --check` dry-run)
+#   - better error messages (names failing file + hunk, not cryptic
+#     ".rej written to <path>" scatter)
+# If a hunk fails, we fall back to `git apply --reject` which writes
+# conflict markers into .rej files just like the old `patch` path did —
+# so the maintainer-workflow on failure is unchanged.
 info "step 2/4: applying 003-ask-kernel-hooks.patch"
-if ! patch --no-backup-if-mismatch -p1 -d "$KDIR" < "$HOOKS_PATCH"; then
-    err "hooks patch failed to apply — see rejects in $KDIR"
+# --unsafe-paths: $KDIR is an absolute path and we are intentionally applying
+# outside any git worktree, which is what the flag unlocks.
+if ! git apply -p1 --unsafe-paths --directory="$KDIR" "$HOOKS_PATCH" 2>&1; then
+    warn "strict apply failed — retrying with --reject to surface failing hunks"
+    git apply -p1 --unsafe-paths --directory="$KDIR" --reject "$HOOKS_PATCH" || true
+    err "hooks patch failed to apply — see *.rej files under $KDIR"
 fi
 ok "hooks patch applied"
 

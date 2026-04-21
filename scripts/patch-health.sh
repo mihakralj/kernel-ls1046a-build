@@ -21,7 +21,7 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-need patch find
+need git find
 
 SOURCE=""
 VERSION_ARG=""
@@ -110,15 +110,26 @@ SUMMARY="$WORK_DIR/patch-health.txt"
 PASS=0; FAIL=0
 FAILED=()
 
+# Use `git apply --check` instead of `patch --dry-run -F0`. Advantages:
+#   - zero fuzz by default (strict: any offset is a failure, not silent accept)
+#   - works against a non-git target tree (does not require $KDIR/.git)
+#   - informative error output (names the file + hunk that failed, not just
+#     "Hunk #N FAILED at <offset>")
+# `patch --dry-run -F0` was a loose approximation of the same thing; this
+# tightens the contract so "health OK" means every hunk lands at the exact
+# line numbers in the patch, which is what a reviewer actually wants to know.
 for p in "${PATCHES[@]}"; do
     name="$(basename "$p")"
-    if out=$(patch --dry-run -p1 -F0 -t -d "$KDIR" < "$p" 2>&1); then
+    # --unsafe-paths is needed because $KDIR is an absolute path; without it
+    # git apply rejects the first file as "invalid path". We are intentionally
+    # applying outside any git worktree, which is what the flag unlocks.
+    if out=$(git apply --check -p1 --unsafe-paths --directory="$KDIR" "$p" 2>&1); then
         printf '  %s ✓%s %s\n' "$_C_GRN" "$_C_RST" "$name" | tee -a "$SUMMARY"
         PASS=$((PASS+1))
     else
         printf '  %s ✗%s %s\n' "$_C_RED" "$_C_RST" "$name" | tee -a "$SUMMARY"
-        echo "$out" | grep -E '(FAILED|Hunk #|saving rejects)' \
-            | sed 's/^/      /' | tee -a "$SUMMARY"
+        # Surface every error line (git apply reports one per failing hunk).
+        printf '%s\n' "$out" | sed 's/^/      /' | tee -a "$SUMMARY"
         FAIL=$((FAIL+1))
         FAILED+=("$name")
     fi
