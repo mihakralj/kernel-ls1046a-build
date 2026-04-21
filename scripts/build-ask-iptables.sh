@@ -327,9 +327,15 @@ printf '   target arch:    %s\n'       "$TARGET_ARCH"
 printf '   ASK files:      %d copied\n' "${#ASK_FILES[@]}"
 printf '   produced:\n'
 for f in "${produced[@]}"; do
-    [[ "$f" == *.deb ]] && printf '     %s (%s)\n' \
-        "$(basename "$f")" "$(du -h "$f" | cut -f1)"
+    if [[ "$f" == *.deb ]]; then
+        printf '     %s (%s)\n' \
+            "$(basename "$f")" "$(du -h "$f" | cut -f1)"
+    fi
 done
+
+# Explicit success exit: the last executed expression in the summary
+# loop must not decide the script's exit code when set -e is active.
+exit 0
 
 # ── Note on what's inside ──────────────────────────────────────────────
 # The four new extension sources compile into:

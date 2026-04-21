@@ -146,6 +146,24 @@ build_one() {
     upstream_ver=$(basename "$src_dir" | sed -E "s/^${src_pkg}-//")
     ok "  fetched $src_pkg $upstream_ver"
 
+    # 2b. Precondition check for rp-pppoe: the CMM-relay patch adds
+    #     `#include <libcmm.h>` to src/relay.c. That header ships with
+    #     the NXP ASK layer-2 userspace (libcmm/fmc/cmm packages), which
+    #     in turn require the FMan SDK sources. When layer 2 has not
+    #     been built and installed, the patched rp-pppoe cannot compile.
+    #     Skip cleanly (not fail) so the pipeline reports the missing
+    #     precondition rather than a confusing C compilation error.
+    if [[ "$src_pkg" == "rp-pppoe" ]]; then
+        if ! echo '#include <libcmm.h>' | ${CROSS_COMPILE}gcc -E -x c - >/dev/null 2>&1; then
+            warn "  rp-pppoe: libcmm.h not found — layer 2 (libcmm userspace) absent"
+            dim "    the CMM-relay patch requires NXP ASK layer-2 headers;"
+            dim "    skipping rp-pppoe until layer 2 is shipped."
+            BUILT_SUMMARY+=("$src_pkg: SKIPPED (libcmm.h absent — layer 2 not present)")
+            end_group
+            return 0
+        fi
+    fi
+
     # 3. Dry-run the patch for clear diagnostics
     if ! (cd "$src_dir" && patch -p1 --dry-run --quiet < "$patch_file"); then
         warn "  $src_pkg: patch does not apply cleanly"
@@ -169,7 +187,18 @@ build_one() {
     ok "  patch applied"
 
     # 5. Changelog bump
-    local new_ver="${upstream_ver}${REVISION_SUFFIX}"
+    #
+    # Append the ASK suffix to the FULL existing Debian version (which
+    # includes the Debian revision), not just the upstream part. Several
+    # source packages (ppp in particular) have debian/rules-level guards
+    # that assert DEB_VERSION_UPSTREAM matches DEB_VERSION — stripping
+    # the existing Debian revision by using only upstream_ver+suffix
+    # trips that guard. Keeping the revision ("2.4.9-1+1ubuntu3+ask1")
+    # keeps DEB_VERSION_UPSTREAM == "2.4.9" stable.
+    local current_deb_ver
+    current_deb_ver=$(cd "$src_dir" && dpkg-parsechangelog -S Version 2>/dev/null)
+    [[ -n "$current_deb_ver" ]] || current_deb_ver="$upstream_ver"
+    local new_ver="${current_deb_ver}${REVISION_SUFFIX}"
     (
         cd "$src_dir"
         if command -v dch >/dev/null 2>&1; then
@@ -189,9 +218,10 @@ build_one() {
     )
     ok "  version → $new_ver"
 
-    # `dch --newversion` renames the working directory from
-    # <pkg>-<ver> to <pkg>-<new_ver>. Re-resolve src_dir so the
-    # subsequent build runs in the correct place.
+    # `dch --newversion` may or may not rename the working directory.
+    # When the new version's upstream part matches the current directory
+    # name (because we appended to the full Debian version, not the
+    # upstream one), the dir stays put. Either way, re-resolve.
     local new_src_dir
     new_src_dir=$(find "$src_root" -mindepth 1 -maxdepth 1 -type d \
         -name "${src_pkg}-${new_ver}" | head -1)
