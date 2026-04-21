@@ -3,9 +3,17 @@
 #
 # Takes a clean linux-6.6.y source tree and turns it into an ASK-ready tree by:
 #   1. Copying release/patches/kernel/sdk-sources/ into the tree (67 files)
-#   2. Applying release/patches/kernel/003-ask-kernel-hooks.patch (-p1)
-#   3. Appending release/ask.config to arch/arm64/configs/defconfig
-#      (or .config if present)
+#   2. Applying every release/patches/kernel/*.patch in sort order (-p1):
+#        001-vyos-linkstate-ip-device-attribute.patch   (VyOS: link_filter sysctl)
+#        002-vyos-inotify-stackable-filesystems.patch   (VyOS: inotify on overlayfs)
+#        003-vyos-build-linux-perf-package.patch        (VyOS: linux-perf packaging)
+#        004-ask-kernel-hooks.patch                     (ASK: DPAA/FMan hooks)
+#        005-ask-sdk-kconfig-wiring.patch               (ASK: SDK Kconfig/Makefile wiring)
+#   3. Assembling .config via merge_config.sh chain:
+#        release/vyos-base/arm64/vyos_defconfig   (VyOS arm64 base)
+#      + release/vyos-base/*.config               (VyOS feature snippets)
+#      + release/ask.config                       (LS1046A/DPAA delta, wins last)
+#      (falls back to `make defconfig` + `cat ask.config` if vyos-base/ is absent)
 #   4. Running `make ARCH=arm64 olddefconfig` to resolve new symbols
 #
 # Source of truth for artefacts (same priority order as patch-health.sh):
@@ -89,8 +97,12 @@ esac
 [[ -d "$PATCH_DIR" ]]            || err "patch dir missing: $PATCH_DIR"
 [[ -f "$CFG_FRAG" ]]             || err "config fragment missing: $CFG_FRAG"
 SDK_DIR="$PATCH_DIR/sdk-sources"
-HOOKS_PATCH="$PATCH_DIR/003-ask-kernel-hooks.patch"
-[[ -f "$HOOKS_PATCH" ]]          || err "hooks patch missing: $HOOKS_PATCH"
+# Collect every *.patch in $PATCH_DIR in lexical order. Numeric prefixes
+# (001-, 002-, …) define the required application sequence:
+#   VyOS patches first (so ASK hooks stack cleanly on top of VyOS deltas),
+#   ASK hooks patch last.
+mapfile -t PATCH_FILES < <(find "$PATCH_DIR" -maxdepth 1 -type f -name '*.patch' | sort)
+(( ${#PATCH_FILES[@]} > 0 )) || err "no *.patch files found in $PATCH_DIR"
 
 info "applying ASK artefacts to kernel tree"
 dim  "   kernel:  linux-$KVER ($KDIR)"
@@ -117,7 +129,7 @@ while IFS= read -r f; do
 done < <(cd "$SDK_DIR" && find . -type f | sed 's|^\./||')
 ok "copied $SDK_COUNT SDK file(s)"
 
-# ── Step 2: apply hooks patch ───────────────────────────────────────────
+# ── Step 2: apply all patches in order ──────────────────────────────────
 # Use `git apply` instead of `patch`. Advantages:
 #   - zero fuzz by default (refuses to guess if context drifts)
 #   - uniform behaviour with patch-health.sh (`git apply --check` dry-run)
@@ -126,36 +138,70 @@ ok "copied $SDK_COUNT SDK file(s)"
 # If a hunk fails, we fall back to `git apply --reject` which writes
 # conflict markers into .rej files just like the old `patch` path did —
 # so the maintainer-workflow on failure is unchanged.
-info "step 2/4: applying 003-ask-kernel-hooks.patch"
-# --unsafe-paths: $KDIR is an absolute path and we are intentionally applying
-# outside any git worktree, which is what the flag unlocks.
-if ! git apply -p1 --unsafe-paths --directory="$KDIR" "$HOOKS_PATCH" 2>&1; then
-    warn "strict apply failed — retrying with --reject to surface failing hunks"
-    git apply -p1 --unsafe-paths --directory="$KDIR" --reject "$HOOKS_PATCH" || true
-    err "hooks patch failed to apply — see *.rej files under $KDIR"
-fi
-ok "hooks patch applied"
+info "step 2/4: applying ${#PATCH_FILES[@]} patch(es) in order"
+for P in "${PATCH_FILES[@]}"; do
+    PNAME=$(basename "$P")
+    dim "   → $PNAME"
+    # --unsafe-paths: $KDIR is an absolute path and we are intentionally applying
+    # outside any git worktree, which is what the flag unlocks.
+    if ! git apply -p1 --unsafe-paths --directory="$KDIR" "$P" 2>&1; then
+        warn "strict apply failed for $PNAME — retrying with --reject to surface failing hunks"
+        git apply -p1 --unsafe-paths --directory="$KDIR" --reject "$P" || true
+        err "$PNAME failed to apply — see *.rej files under $KDIR"
+    fi
+done
+ok "all patches applied"
 
-# ── Step 3: seed + append config ────────────────────────────────────────
-info "step 3/4: configuring kernel ($DEFCONFIG + ask.config)"
-if [[ ! -f "$KDIR/.config" ]]; then
-    dim "   running: make ARCH=arm64 $DEFCONFIG"
-    # Keep output visible in CI logs — if defconfig fails we want the
-    # error message, not a silent exit.
-    (cd "$KDIR" && make ARCH=arm64 "$DEFCONFIG" 2>&1 | tail -5) \
-        || err "make $DEFCONFIG failed"
-    ok "   seeded .config from $DEFCONFIG"
+# ── Step 3: assemble config via merge_config.sh chain ───────────────────
+# Goal: produce a .config that is a strict superset of VyOS's kernel config
+# (so every VyOS-visible sysctl/module is present), with our LS1046A/DPAA
+# delta layered on top as the *last* fragment so it wins on conflicts.
+#
+# Order (later files override earlier values):
+#   1. release/vyos-base/arm64/vyos_defconfig   — VyOS arm64 base
+#   2. release/vyos-base/*.config               — VyOS feature snippets
+#   3. release/ask.config                       — LS1046A/DPAA delta (authoritative)
+#
+# If release/vyos-base/ is absent (e.g. building an old tree without VyOS
+# alignment), fall back to the legacy $DEFCONFIG + ask.config path.
+VYOS_BASE="$REPO_ROOT/release/vyos-base"
+MERGE_CONFIG="$KDIR/scripts/kconfig/merge_config.sh"
+
+info "step 3/4: assembling config"
+if [[ -d "$VYOS_BASE" && -x "$MERGE_CONFIG" && -f "$VYOS_BASE/arm64/vyos_defconfig" ]]; then
+    dim "   source: vyos-base + ask.config (merge_config.sh chain)"
+    VYOS_SNIPPETS=( "$VYOS_BASE"/*.config )
+    (
+        cd "$KDIR"
+        # merge_config.sh -m in-place merges fragments into $KCONFIG_CONFIG
+        # (defaults to .config in cwd). -r prints conflicting-value warnings
+        # (informational — last fragment wins).
+        ARCH=arm64 "$MERGE_CONFIG" -m -r \
+            "$VYOS_BASE/arm64/vyos_defconfig" \
+            "${VYOS_SNIPPETS[@]}" \
+            "$CFG_FRAG" 2>&1 | tail -20
+    ) || err "merge_config.sh chain failed"
+    ok "   merged vyos_defconfig + ${#VYOS_SNIPPETS[@]} snippet(s) + ask.config"
+else
+    warn "vyos-base/ not found — falling back to legacy $DEFCONFIG + ask.config path"
+    if [[ ! -f "$KDIR/.config" ]]; then
+        dim "   running: make ARCH=arm64 $DEFCONFIG"
+        (cd "$KDIR" && make ARCH=arm64 "$DEFCONFIG" 2>&1 | tail -5) \
+            || err "make $DEFCONFIG failed"
+        ok "   seeded .config from $DEFCONFIG"
+    fi
+    echo ""                     >> "$KDIR/.config"
+    echo "# ── ASK fragment ──" >> "$KDIR/.config"
+    cat "$CFG_FRAG"             >> "$KDIR/.config"
 fi
 
-# Disable conflicting mainline DPAA ETH before appending ASK options.
+# Disable conflicting mainline DPAA ETH (the merge_config.sh above may have
+# re-enabled it via vyos_defconfig; ask.config's "# is not set" override is
+# applied last but only takes effect after olddefconfig resolves deps).
 if grep -q '^CONFIG_FSL_DPAA_ETH=y' "$KDIR/.config" 2>/dev/null; then
     sed -i 's/^CONFIG_FSL_DPAA_ETH=y/# CONFIG_FSL_DPAA_ETH is not set/' "$KDIR/.config"
     dim "   disabled conflicting CONFIG_FSL_DPAA_ETH"
 fi
-
-echo ""                 >> "$KDIR/.config"
-echo "# ── ASK fragment ──" >> "$KDIR/.config"
-cat "$CFG_FRAG"         >> "$KDIR/.config"
 
 # ── Step 4: olddefconfig to resolve new symbols ─────────────────────────
 info "step 4/4: resolving config (make ARCH=arm64 olddefconfig)"

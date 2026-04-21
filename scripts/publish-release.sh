@@ -64,7 +64,11 @@ fi
 
 # ── Stage the authoritative subset ──────────────────────────────────────
 # We publish ONLY:
-#   - patches/kernel/003-ask-kernel-hooks.patch
+#   - patches/kernel/*.patch
+#       001-vyos-linkstate-ip-device-attribute.patch   (VyOS sysctl)
+#       002-vyos-inotify-stackable-filesystems.patch   (VyOS overlayfs)
+#       003-vyos-build-linux-perf-package.patch        (VyOS perf packaging)
+#       004-ask-kernel-hooks.patch                     (ASK DPAA/FMan hooks)
 #   - patches/kernel/sdk-sources/
 #   - ask.config
 #   - manifest.json
@@ -74,7 +78,7 @@ trap 'rm -rf "$STAGE"' EXIT
 
 mkdir -p "$STAGE/patches/kernel"
 
-# patches/kernel/003-ask-kernel-hooks.patch: the upstream reference repo's
+# patches/kernel/004-ask-kernel-hooks.patch: the upstream reference repo's
 # patch targets 6.6.y but contains hunks that need surgical fixes for 6.6
 # (e.g. 068299b restored tabs, 620cf05 fixed hunk counts, d9e71aa added
 # missing CPE_FAST_PATH guards in br_vlan.c). `derive-patches.sh` copies
@@ -169,7 +173,9 @@ This directory is **managed by scripts/publish-release.sh**. Do not edit by hand
 
 | Path | Purpose |
 |---|---|
-| `patches/kernel/003-ask-kernel-hooks.patch` | monolithic kernel patch (feeds build) |
+| `patches/kernel/001-vyos-*.patch`               | VyOS kernel patches (link_filter, inotify, perf) |
+| `patches/kernel/004-ask-kernel-hooks.patch`     | monolithic ASK kernel patch (DPAA/FMan hooks) |
+| `patches/kernel/005-ask-sdk-kconfig-wiring.patch` | ASK: wires SDK Kconfig/Makefile into parent trees |
 | `patches/kernel/sdk-sources/` | SDK source files to drop into the kernel tree |
 | `ask.config` | kernel config fragment |
 | `manifest.json` | provenance: which reference/upstream SHAs produced these artefacts |

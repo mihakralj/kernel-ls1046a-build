@@ -65,6 +65,8 @@ rm -rf "$OUT"
 mkdir -p "$OUT/patches/kernel" "$OUT/reports" "$OUT/reconciliation"
 
 # The upstream reference's 003-ask-kernel-hooks.patch ships with malformed
+# (emitted into our release tree as 004-ask-kernel-hooks.patch so it sorts
+# after the three VyOS patches 001-, 002-, 003-).
 # context lines (zero leading-space prefix inside hunk bodies). GNU patch(1)
 # tolerates it; git apply and patchutils (filterdiff etc.) do not. Normalize
 # on the way in so downstream tools (patch-health → git apply, splitters,
@@ -72,7 +74,7 @@ mkdir -p "$OUT/patches/kernel" "$OUT/reports" "$OUT/reconciliation"
 install_reference_kernel_patch() {
     awk -f "$SCRIPTS_DIR/normalize-patch.awk" \
         "$REF_DIR/$REFERENCE_KERNEL_PATCH" \
-        > "$OUT/patches/kernel/003-ask-kernel-hooks.patch"
+        > "$OUT/patches/kernel/004-ask-kernel-hooks.patch"
 }
 
 # ── Step 1: Extract upstream monolithic patch at baseline and target ────
@@ -255,7 +257,8 @@ SUMMARY="$OUT/SUMMARY.md"
         echo "  Steps:"
         echo "    1. For each bundle, decide whether the upstream change also applies to 6.6."
         echo "    2. Update reference.chunk hand to incorporate upstream's change."
-        echo "    3. Fold updated chunks back into the reference repo's 003-ask-kernel-hooks.patch."
+        echo "    3. Fold updated chunks back into the reference repo's 003-ask-kernel-hooks.patch"
+        echo "       (the upstream reference keeps the original 003- name; we re-emit it as 004- locally)."
         echo "    4. Push the update to ${REFERENCE_REPO} and bump REFERENCE_REF."
         echo "    5. Bump UPSTREAM_BASELINE in versions.lock to ${TARGET_SHA:0:12}."
         echo "    6. Re-run ./scripts/derive-patches.sh — should go green (status: ok)."
