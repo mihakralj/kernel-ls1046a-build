@@ -34,7 +34,7 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-need git diff lsdiff filterdiff
+need git diff lsdiff filterdiff interdiff
 
 [[ -f "$REPO_ROOT/versions.lock" ]] || err "versions.lock not found at $REPO_ROOT"
 # shellcheck disable=SC1091
@@ -77,10 +77,17 @@ dim "   baseline: $(wc -l < "$UP_PATCH_B") lines"
 dim "   target:   $(wc -l < "$UP_PATCH_T") lines"
 
 # ── Step 2: Upstream delta (for reporting only) ─────────────────────────
+# Use `interdiff` from patchutils rather than `diff -u` on the patch files.
+# interdiff is aware that the two inputs are themselves patches: it maps
+# hunks by target-file path + hunk location, not by line number in the patch
+# blob. A `diff -u` between two 17,900-line patch files produces noise
+# (reformatted hunk headers, shifted line numbers) that is not semantically
+# meaningful; interdiff produces the *actual* patch that takes you from
+# UP_PATCH_B's effect to UP_PATCH_T's effect.
 info ""
-info "Step 2/5: Computing upstream delta (informational)…"
+info "Step 2/5: Computing upstream delta (semantic, via interdiff)…"
 UPSTREAM_DELTA="$OUT/reports/upstream-delta.diff"
-diff -u "$UP_PATCH_B" "$UP_PATCH_T" > "$UPSTREAM_DELTA" || true
+interdiff "$UP_PATCH_B" "$UP_PATCH_T" > "$UPSTREAM_DELTA" 2>/dev/null || true
 DELTA_LINES=$(wc -l < "$UPSTREAM_DELTA")
 ok "delta: $DELTA_LINES lines"
 
