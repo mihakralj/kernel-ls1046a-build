@@ -64,6 +64,17 @@ OUT="$WORK_DIR/derived"
 rm -rf "$OUT"
 mkdir -p "$OUT/patches/kernel" "$OUT/reports" "$OUT/reconciliation"
 
+# The upstream reference's 003-ask-kernel-hooks.patch ships with malformed
+# context lines (zero leading-space prefix inside hunk bodies). GNU patch(1)
+# tolerates it; git apply and patchutils (filterdiff etc.) do not. Normalize
+# on the way in so downstream tools (patch-health → git apply, splitters,
+# publishers) all see a strictly-conformant unified diff.
+install_reference_kernel_patch() {
+    awk -f "$SCRIPTS_DIR/normalize-patch.awk" \
+        "$REF_DIR/$REFERENCE_KERNEL_PATCH" \
+        > "$OUT/patches/kernel/003-ask-kernel-hooks.patch"
+}
+
 # ── Step 1: Extract upstream monolithic patch at baseline and target ────
 info ""
 info "Step 1/5: Extracting upstream 6.12 kernel patch at both SHAs…"
@@ -93,7 +104,7 @@ ok "delta: $DELTA_LINES lines"
 
 # Short-circuit no-op.
 if [[ "$DELTA_LINES" -eq 0 ]]; then
-    cp "$REF_DIR/$REFERENCE_KERNEL_PATCH"   "$OUT/patches/kernel/003-ask-kernel-hooks.patch"
+    install_reference_kernel_patch
     cp -r "$REF_DIR/$REFERENCE_SDK_SOURCES" "$OUT/patches/kernel/sdk-sources"
     cp "$REF_DIR/config/ask.config"         "$OUT/"
     STATUS="ok"
@@ -178,8 +189,8 @@ if [[ "$DELTA_LINES" -ne 0 ]]; then
         echo "$ref_status" > "$bundle/REFERENCE_STATUS"
     done < "$DRIFTED_LIST"
 
-    # Copy reference patch through unchanged — still authoritative.
-    cp "$REF_DIR/$REFERENCE_KERNEL_PATCH"   "$OUT/patches/kernel/003-ask-kernel-hooks.patch"
+    # Copy reference patch through (normalized) — still authoritative.
+    install_reference_kernel_patch
     cp -r "$REF_DIR/$REFERENCE_SDK_SOURCES" "$OUT/patches/kernel/sdk-sources"
     cp "$REF_DIR/config/ask.config"         "$OUT/"
 
