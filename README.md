@@ -185,7 +185,7 @@ The full ASK stack is five layers. Each is a separate optional build that produc
 | 1 | **OOT kernel modules** | `cdx`, `fci`, `auto_bridge` — the drivers that register on the hook sites | `--ask-extras` | ⏸ Blocked (see below) |
 | 2 | **Userspace daemons** | `fmc` (FMan configurator), `cmm` (conn-track/manip), `dpa_app` — XML policy → silicon | `--ask-extras` | 🟡 Not yet scripted |
 | 3+4 | **Patched `iptables` + xtables plugins** | Single Debian source rebuild: patched iptables binaries **and** `libxt_QOSMARK.so`, `libxt_QOSCONNMARK.so` | `--ask-extras` | 🟢 Shipping |
-| 5 | **Patched `ppp` + `rp-pppoe`** | PPP ifindex fix + rp-pppoe CMM relay patches for PPPoE fast-path | `--ask-extras` | 🟢 Shipping |
+| 5 | **Patched `ppp` + `rp-pppoe`** | PPP ifindex fix (ships) + rp-pppoe CMM relay patch (needs layer 2) | `--ask-extras` | 🟢 ppp · ⏸ rp-pppoe |
 
 Legend: ✅ built and released · 🟢 implemented (CI verification pending) ·
 🟡 planned · ⏸ precondition blocked.
@@ -223,7 +223,11 @@ The patched iptables rebuild (which covers both xtables plugins and the iptables
 
 Output: the standard Debian iptables `.deb` set (`iptables`, `libxtables12`, `libip4tc2`, `libip6tc2`, `iptables-dev`) rebuilt with the QOSMARK / QOSCONNMARK extensions baked in.
 
-`scripts/build-ask-ppp.sh` implements layer 5. It iterates the two source packages (`ppp`, `rp-pppoe`) independently — each sub-build has its own `debian/patches/0999-ask.patch` extracted from the upstream mirror (`patches/ppp/01-nxp-ask-ifindex.patch`, `patches/rp-pppoe/01-nxp-ask-cmm-relay.patch`). A dry-run gate rejects upfront if a patch no longer applies; partial success (e.g. `ppp` built but `rp-pppoe` failed) still exits 0 so the pipeline proceeds.
+`scripts/build-ask-ppp.sh` implements layer 5. It iterates the two source packages (`ppp`, `rp-pppoe`) independently — each sub-build has its own `debian/patches/0999-ask.patch` extracted from the upstream mirror (`patches/ppp/01-nxp-ask-ifindex.patch`, `patches/rp-pppoe/01-nxp-ask-cmm-relay.patch`). A dry-run gate rejects upfront if a patch no longer applies; partial success (e.g. `ppp` built but `rp-pppoe` skipped) still exits 0 so the pipeline proceeds.
+
+The rp-pppoe CMM-relay patch adds `#include <libcmm.h>` to `src/relay.c`. That header ships with **ASK layer 2** (the `libcmm` userspace package). Until layer 2 is built and installed, `build-ask-ppp.sh` auto-skips the rp-pppoe sub-build with a clear diagnostic (`SKIPPED (libcmm.h absent — layer 2 not present)`) rather than failing mid-compile. The ppp sub-build has no such dependency and ships today.
+
+The ppp sub-build also preserves the full Debian revision when bumping the version (uses `dpkg-parsechangelog -S Version` → appends `+ask1`), because ppp's `debian/rules` has a `DEB_VERSION_UPSTREAM != DEB_VERSION` guard that trips when the Debian revision is stripped.
 
 ## Quick start
 
