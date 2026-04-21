@@ -143,6 +143,42 @@ for dir in cdx fci auto_bridge; do
 done
 end_group
 
+# ── Apply ASK-modules patches (6.6 compat, Mono-specific fixes) ─────────
+#
+# Patches in release/patches/ask-modules/*.patch are applied in sort order
+# against $SRC_ROOT (the extracted cdx/fci/auto_bridge tree). These patches
+# track changes that the 6.6 reference repo (mihakralj/ask-ls1046a-6.6)
+# made on top of the original we-are-mono/ASK sources — e.g. 6.6 API drift
+# (const struct ctl_table), WiFi-offload disablement, defensive NULL
+# checks, crash-safe userspace pointer handling in dpa_cfg.c.
+#
+# Rationale for applying at build time (rather than pre-patching the git
+# archive): the upstream ASK tree is pulled via `git archive` from the
+# bare mirror and is intentionally pristine — these patches are OUR
+# downstream deltas, versioned in this repo so they can be reviewed
+# independently of the upstream ASK SHA pin.
+PATCH_DIR="$REPO_ROOT/release/patches/ask-modules"
+if [[ -d "$PATCH_DIR" ]]; then
+    shopt -s nullglob
+    ask_patches=( "$PATCH_DIR"/*.patch )
+    shopt -u nullglob
+    if (( ${#ask_patches[@]} > 0 )); then
+        begin_group "apply ASK-modules patches (${#ask_patches[@]} file(s))"
+        for p in "${ask_patches[@]}"; do
+            info "  applying $(basename "$p")"
+            if ! (cd "$SRC_ROOT" && git apply --whitespace=nowarn "$p"); then
+                err "failed to apply $(basename "$p")"
+            fi
+            ok "    applied $(basename "$p")"
+        done
+        end_group
+    else
+        dim "no patches in $PATCH_DIR — skipping patch-apply step"
+    fi
+else
+    dim "$PATCH_DIR does not exist — skipping patch-apply step"
+fi
+
 # ── Build each module ───────────────────────────────────────────────────
 #
 # The three modules have subtly different Makefile conventions:
