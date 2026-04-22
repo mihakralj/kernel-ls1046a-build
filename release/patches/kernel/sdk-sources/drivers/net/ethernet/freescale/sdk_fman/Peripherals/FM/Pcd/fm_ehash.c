@@ -40,8 +40,22 @@ extern void disp_sch_info(void *);
 extern void *FmMurambaseAddr;
 en_exthash_global_mem *en_global_muram_mem = NULL;
 
-extern void get_indexed_hash_bucket(uint8_t key_size,  uint8_t *key_ptr,
-	        uint8_t crc_shift, uint16_t mask, uint16_t *bucket_index);
+/* ASK-6.6 fix: the original symbol was exported by an out-of-tree hash
+ * library that is not present in this kernel build. Provide the helper
+ * locally as a static inline so the translation unit is self-contained.
+ */
+static inline void get_indexed_hash_bucket(uint8_t key_size, uint8_t *key_ptr,
+uint8_t crc_shift, uint16_t mask,
+uint16_t *bucket_index)
+{
+uint64_t crc64 = 0;
+
+crc64 = crc64_init();
+crc64 = crc64_compute(key_ptr, key_size, crc64);
+
+crc64 >>= ((6 - crc_shift) << 3);
+*bucket_index = (uint16_t)crc64 & mask;
+}
 
 void display_reassem_stats(uint32_t type);
 static void display_reassem_params(uint32_t type);
