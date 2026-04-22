@@ -112,15 +112,20 @@ jobs:
               fi
           fi
           apt-get update -qq
-          # Sanity-check that apt actually sees deb-src for bookworm —
-          # otherwise `apt-get source iptables` silently falls back to
-          # binary downloads which produce no buildable source tree.
-          apt-cache policy | grep -E 'http.*(bookworm|debian-security).*Sources' \
-              || { echo "ERROR: no deb-src for bookworm — apt sources misconfigured"; \
-                   echo '----- /etc/apt/sources.list -----'; cat /etc/apt/sources.list 2>/dev/null || true; \
-                   echo '----- /etc/apt/sources.list.d/ -----'; ls -la /etc/apt/sources.list.d/; \
-                   cat /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
-                   exit 1; }
+          # Sanity-check that apt actually sees a source index for
+          # iptables (cheapest proxy for "bookworm deb-src works").
+          # If this fails, `apt-get source iptables` later will too,
+          # and fail in a confusing way — abort now with diagnostics.
+          if ! apt-cache showsrc iptables 2>/dev/null | grep -q '^Package: iptables'; then
+              echo "ERROR: apt-cache has no source index for iptables — deb-src misconfigured"
+              echo '----- /etc/apt/sources.list.d/ -----'
+              ls -la /etc/apt/sources.list.d/
+              echo '----- debian.sources -----'
+              cat /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
+              echo '----- sources.list -----'
+              cat /etc/apt/sources.list 2>/dev/null || true
+              exit 1
+          fi
 
           # ── Step 2: native compiler + kernel + extras build-deps ─────
           # Runner IS arm64, so plain `gcc` is the target compiler. Native
