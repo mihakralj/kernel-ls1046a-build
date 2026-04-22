@@ -20,6 +20,7 @@
 #include "fm_ehash.h"
 #include "fm_pcd.h"
 #include "fm_cc.h"
+#include "crc64.h"
 #include "endian_ext.h"
 
 //#define FM_EHASH_DEBUG 1
