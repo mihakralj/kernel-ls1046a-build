@@ -3733,13 +3733,13 @@ t_Error FM_Init(t_Handle h_Fm)
     /* Register the FM interrupts handlers */
     if (p_Fm->p_FmStateStruct->irq != NO_IRQ)
     {
-        XX_SetIntr(p_Fm->p_FmStateStruct->irq, FM_EventIsr, p_Fm);
+        XX_SetIntr(p_Fm->p_FmStateStruct->irq, (t_Isr *)FM_EventIsr, p_Fm);
         XX_EnableIntr(p_Fm->p_FmStateStruct->irq);
     }
 
     if (p_Fm->p_FmStateStruct->errIrq != NO_IRQ)
     {
-        XX_SetIntr(p_Fm->p_FmStateStruct->errIrq, FM_ErrorIsr, p_Fm);
+        XX_SetIntr(p_Fm->p_FmStateStruct->errIrq, (t_Isr *)FM_ErrorIsr, p_Fm);
         XX_EnableIntr(p_Fm->p_FmStateStruct->errIrq);
     }
 

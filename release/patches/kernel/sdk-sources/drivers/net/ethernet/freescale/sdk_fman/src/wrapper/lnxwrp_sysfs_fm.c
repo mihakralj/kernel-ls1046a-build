@@ -55,7 +55,6 @@ static ssize_t show_fm_dma_cmd_queue(struct device *dev,
 static ssize_t show_fm_dma_cam_queue(struct device *dev,
                                 struct device_attribute *attr,
                                 char *buf);
-static int fm_get_counter(void *h_fm, enum fman_counters cnt_e, uint32_t *cnt_val);
 
 enum fm_dma_match_stats {
 	FM_DMA_COUNTERS_CMQ_NOT_EMPTY,
