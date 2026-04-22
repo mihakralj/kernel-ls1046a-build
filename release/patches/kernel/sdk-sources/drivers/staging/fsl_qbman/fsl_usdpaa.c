@@ -824,11 +824,11 @@ static int check_mmap_portal(struct ctx *ctx, struct vm_area_struct *vma,
 		ret = check_mmap_resource(&portal->phys[DPA_PORTAL_CE], vma,
 					  match, pfn);
 		if (*match) {
-			vma->vm_page_prot =
+vma->vm_page_prot =
 #if defined(CONFIG_ARM) || defined(CONFIG_ARM64)
-				pgprot_cached_ns(vma->vm_page_prot);
+pgprot_cached(vma->vm_page_prot);
 #else
-				pgprot_cached_noncoherent(vma->vm_page_prot);
+pgprot_cached_noncoherent(vma->vm_page_prot);
 #endif
 			return ret;
 		}
