@@ -232,7 +232,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/kernel-')
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
+          # Inside the debian:bookworm container the workspace is owned
+          # by a different UID than the current user; tell git it's safe
+          # so `gh` can read the remote if it falls back to git.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
           # Tag already exists (this workflow was triggered by its push), so
           # publish-binaries.sh would refuse. Use --force to overwrite the
           # auto-created tag entry with our fully-populated release.
@@ -242,4 +247,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/publish-binaries.sh
+          GH_REPO: ${{ github.repository }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
+          ./scripts/publish-binaries.sh
