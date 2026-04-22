@@ -619,7 +619,7 @@ static struct qman_portal *init_pcfg(struct qm_portal_config *pcfg)
 
 	pcfg->iommu_domain = NULL;
 	portal_set_cpu(pcfg, pcfg->public_cfg.cpu);
-	p = qman_create_affine_portal(pcfg, NULL);
+	p = qman_create_affine_portal(pcfg, NULL, false);
 	if (p) {
 		u32 irq_sources = 0;
 		/* Determine what should be interrupt-vs-poll driven */

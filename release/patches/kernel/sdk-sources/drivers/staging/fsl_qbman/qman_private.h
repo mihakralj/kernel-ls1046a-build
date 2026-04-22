@@ -229,18 +229,20 @@ int qm_get_wpm(int *wpm);
 
 /* Hooks from qman_driver.c in to qman_high.c */
 struct qman_portal *qman_create_portal(
-			struct qman_portal *portal,
-			const struct qm_portal_config *config,
-			const struct qman_cgrs *cgrs);
+struct qman_portal *portal,
+const struct qm_portal_config *config,
+const struct qman_cgrs *cgrs,
+bool need_cleanup);
 
 #ifdef CONFIG_FSL_DPAA_ETHERCAT
 struct qman_portal *qman_create_affine_portal_ethercat
-			(const struct qm_portal_config *config,
-			const struct qman_cgrs *cgrs, int cpu);
+(const struct qm_portal_config *config,
+const struct qman_cgrs *cgrs, int cpu);
 #endif
 struct qman_portal *qman_create_affine_portal(
-			const struct qm_portal_config *config,
-			const struct qman_cgrs *cgrs);
+const struct qm_portal_config *config,
+const struct qman_cgrs *cgrs,
+bool need_cleanup);
 struct qman_portal *qman_create_affine_slave(struct qman_portal *redirect,
 								int cpu);
 const struct qm_portal_config *qman_destroy_affine_portal(void);
