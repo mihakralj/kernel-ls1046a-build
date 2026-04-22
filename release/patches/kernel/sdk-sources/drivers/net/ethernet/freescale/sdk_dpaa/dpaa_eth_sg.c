@@ -1951,10 +1951,29 @@ int cpe_fp_tx(struct sk_buff *skb, struct net_device *net_dev)
 
 static inline void skb_reset_truesize(struct sk_buff *skb, unsigned int size)
 {
-	size -= SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
-	skb->truesize = SKB_TRUESIZE(size);
+size -= SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
+skb->truesize = SKB_TRUESIZE(size);
 
-	return;
+return;
+}
+
+/* ASK-6.6 fix: skb_recycle() was removed from the kernel in commit e36c887
+ * (v3.12, 2013). The pre-3.12 helper reset the skb so a driver could reuse
+ * it after TX completion. In this driver the immediately-following code
+ * already resets skb->data, the tail pointer and truesize, so all that is
+ * still required is to clear shared-info state (frags/frag_list/refcount)
+ * and the length bookkeeping. Provide a minimal local replacement.
+ */
+static inline void skb_recycle(struct sk_buff *skb)
+{
+	struct skb_shared_info *shinfo = skb_shinfo(skb);
+
+	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
+	atomic_set(&shinfo->dataref, 1);
+
+	memset(skb, 0, offsetof(struct sk_buff, tail));
+	skb->data = skb->head + NET_SKB_PAD;
+	skb_reset_tail_pointer(skb);
 }
 
 int __hot dpa_tx(struct sk_buff *skb, struct net_device *net_dev)
