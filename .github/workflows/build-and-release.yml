@@ -142,23 +142,27 @@ jobs:
       - name: Preflight (environment report)
         # Dump everything useful for post-mortem into a single collapsible
         # group. Saves ten minutes of "what was the runner again?" later.
+        # `bash -e` is intentionally off here because this step is purely
+        # informational — a missing utility (e.g. `free` on minimal
+        # bookworm images without `procps`) must not abort the build.
+        shell: bash --noprofile --norc -o pipefail {0}
         run: |
           echo "::group::Runner environment"
-          echo "# uname"; uname -a
-          echo "# distro"; cat /etc/os-release || true
+          echo "# uname";  uname -a
+          echo "# distro"; cat /etc/os-release 2>/dev/null || true
           echo "# cpu";    nproc; head -20 /proc/cpuinfo | grep -E 'model name|cpu cores' | head -2
-          echo "# memory"; free -h
-          echo "# disk";   df -h /
-          echo "# git";    git --version
-          echo "# gcc";    gcc --version | head -1
-          echo "# make";   make --version | head -1
-          echo "# gh";     gh --version | head -1
-          echo "# jq";     jq --version
+          echo "# memory"; free -h 2>/dev/null || awk '/^Mem|^MemTotal|^MemFree/' /proc/meminfo
+          echo "# disk";   df -h / 2>/dev/null || true
+          echo "# git";    git --version 2>/dev/null || echo "(no git)"
+          echo "# gcc";    gcc --version 2>/dev/null | head -1 || echo "(no gcc)"
+          echo "# make";   make --version 2>/dev/null | head -1 || echo "(no make)"
+          echo "# gh";     gh --version 2>/dev/null | head -1 || echo "(no gh)"
+          echo "# jq";     jq --version 2>/dev/null || echo "(no jq)"
           echo "::endgroup::"
           echo "::group::Repo state"
-          git log -1 --format='commit:    %H%nauthor:    %an <%ae>%ndate:      %ad%nsubject:   %s'
-          git status --short
-          cat versions.lock
+          git log -1 --format='commit:    %H%nauthor:    %an <%ae>%ndate:      %ad%nsubject:   %s' || true
+          git status --short || true
+          cat versions.lock || true
           echo "::endgroup::"
 
       - name: Cache kernel source tarball
