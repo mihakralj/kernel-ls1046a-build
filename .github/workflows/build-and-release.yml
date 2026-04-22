@@ -41,6 +41,16 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
 
+    defaults:
+      run:
+        # Inside the debian:bookworm container, GitHub Actions defaults
+        # to 'sh -e' (dash) because the host is not a self-hosted Linux
+        # runner image. Our scripts rely on bash features
+        # (`set -o pipefail`, `[[...]]`, arrays, `shopt`, etc.), so
+        # force bash across every run: step. Explicit per-step shell:
+        # overrides still work.
+        shell: bash
+
     # ── Why a container? ──────────────────────────────────────────────
     # The VyOS ISO is Debian bookworm-based. If we build iptables / ppp
     # on the host runner (Ubuntu 24.04 noble-arm), `apt-get source`
