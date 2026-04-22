@@ -41,34 +41,79 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
 
+    # ── Why a container? ──────────────────────────────────────────────
+    # The VyOS ISO is Debian bookworm-based. If we build iptables / ppp
+    # on the host runner (Ubuntu 24.04 noble-arm), `apt-get source`
+    # pulls NOBLE source packages whose Debian control files carry
+    #   Depends: libc6 (>= 2.38)
+    #   Depends: libpcap0.8t64, libssl3t64   (64-bit time_t transition)
+    # These deps are unsatisfiable in a bookworm chroot
+    # (libc6 2.36, plain libpcap0.8/libssl3 with no "t64" suffix), so
+    # live-build aborts with "held broken packages" (observed in
+    # consumer run 24797077372).
+    # Running the whole build inside debian:bookworm makes `apt-get
+    # source` pick the bookworm source package and produces .debs whose
+    # runtime deps match what VyOS's chroot actually provides.
+    container:
+      image: debian:bookworm
+      # No special options required; default /__w mount + root user is
+      # fine for dpkg-buildpackage inside the container.
+
     steps:
+      - name: Bootstrap container (git, curl, gh, sudo)
+        # The debian:bookworm base image is minimal — actions/checkout
+        # needs git+curl, publish-binaries.sh needs gh, and several
+        # build scripts `sudo` even though we're already root. Install
+        # everything before `actions/checkout@v4` runs.
+        run: |
+          set -eux
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            git curl ca-certificates gnupg jq sudo lsb-release \
+            apt-transport-https
+          # GitHub CLI is not in bookworm main — add the official
+          # cli.github.com apt repo so `gh` is available for the
+          # publish-binaries.sh step at the end of the job.
+          mkdir -p /etc/apt/keyrings
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+          chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            > /etc/apt/sources.list.d/github-cli.list
+          apt-get update -qq
+          apt-get install -y --no-install-recommends gh
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Install build deps (native arm64)
+      - name: Install build deps (native arm64, Debian bookworm)
         run: |
           set -eux
           # ── Step 1: enable deb-src so `apt-get source` works ──────────
-          # deb-src is commented out by default. Needed for
-          # build-ask-iptables.sh / build-ask-ppp.sh (`apt-get source`).
-          if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then
-            # Ubuntu 24.04+ deb822 format.
-            sudo sed -i 's/^Types: deb$/Types: deb deb-src/' \
-              /etc/apt/sources.list.d/*.sources || true
+          # Debian bookworm uses the classic one-line sources.list
+          # format. deb-src lines are present but commented out by
+          # default in the official docker image; uncomment them here.
+          # (No deb822 .sources files in this image, so the Ubuntu
+          # branch from the previous workflow is not needed.)
+          sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list
+          # Some bookworm images ship only a single "deb" line from the
+          # main pocket and no deb-src at all. If no deb-src lines
+          # exist after the sed, append them explicitly.
+          if ! grep -q '^deb-src ' /etc/apt/sources.list; then
+              awk '/^deb / { sub(/^deb /,"deb-src "); print }' \
+                  /etc/apt/sources.list >> /etc/apt/sources.list
           fi
-          sudo sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list || true
-          sudo apt-get update -qq
+          apt-get update -qq
 
           # ── Step 2: native compiler + kernel + extras build-deps ─────
           # Runner IS arm64, so plain `gcc` is the target compiler. Native
           # dev libs satisfy dpkg-checkbuilddeps for iptables/ppp/rp-pppoe.
-          sudo apt-get install -y --no-install-recommends \
+          apt-get install -y --no-install-recommends \
             build-essential debhelper devscripts quilt dpkg-dev \
             libssl-dev bc flex bison libelf-dev \
             fakeroot kmod rsync cpio patch patchutils \
-            jq curl ca-certificates \
             libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev \
             libpam0g-dev libpcap0.8-dev libsystemd-dev zlib1g-dev ppp-dev \
             libtraceevent-dev libdw-dev libunwind-dev libaudit-dev \
