@@ -92,20 +92,35 @@ jobs:
         run: |
           set -eux
           # ── Step 1: enable deb-src so `apt-get source` works ──────────
-          # Debian bookworm uses the classic one-line sources.list
-          # format. deb-src lines are present but commented out by
-          # default in the official docker image; uncomment them here.
-          # (No deb822 .sources files in this image, so the Ubuntu
-          # branch from the previous workflow is not needed.)
-          sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list
-          # Some bookworm images ship only a single "deb" line from the
-          # main pocket and no deb-src at all. If no deb-src lines
-          # exist after the sed, append them explicitly.
-          if ! grep -q '^deb-src ' /etc/apt/sources.list; then
-              awk '/^deb / { sub(/^deb /,"deb-src "); print }' \
-                  /etc/apt/sources.list >> /etc/apt/sources.list
+          # Recent debian:bookworm docker images ship sources in the new
+          # deb822 format at /etc/apt/sources.list.d/debian.sources and
+          # do NOT populate the legacy /etc/apt/sources.list. Older
+          # images had the opposite layout. Handle both so this step is
+          # portable across base-image updates.
+          if [ -f /etc/apt/sources.list.d/debian.sources ]; then
+              # deb822: add deb-src to every stanza's "Types:" line.
+              sed -i -E 's/^Types:\s*deb\s*$/Types: deb deb-src/' \
+                  /etc/apt/sources.list.d/debian.sources
+          fi
+          if [ -f /etc/apt/sources.list ]; then
+              # one-liner: uncomment existing deb-src, or mirror every
+              # "deb " line into a matching "deb-src " line if none exist.
+              sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list
+              if ! grep -q '^deb-src ' /etc/apt/sources.list; then
+                  awk '/^deb / { sub(/^deb /,"deb-src "); print }' \
+                      /etc/apt/sources.list >> /etc/apt/sources.list
+              fi
           fi
           apt-get update -qq
+          # Sanity-check that apt actually sees deb-src for bookworm —
+          # otherwise `apt-get source iptables` silently falls back to
+          # binary downloads which produce no buildable source tree.
+          apt-cache policy | grep -E 'http.*(bookworm|debian-security).*Sources' \
+              || { echo "ERROR: no deb-src for bookworm — apt sources misconfigured"; \
+                   echo '----- /etc/apt/sources.list -----'; cat /etc/apt/sources.list 2>/dev/null || true; \
+                   echo '----- /etc/apt/sources.list.d/ -----'; ls -la /etc/apt/sources.list.d/; \
+                   cat /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
+                   exit 1; }
 
           # ── Step 2: native compiler + kernel + extras build-deps ─────
           # Runner IS arm64, so plain `gcc` is the target compiler. Native
