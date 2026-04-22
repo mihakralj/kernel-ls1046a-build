@@ -613,13 +613,14 @@ void qm_put_unused_portal(struct qm_portal_config *pcfg)
 	spin_unlock(&unused_pcfgs_lock);
 }
 
-static struct qman_portal *init_pcfg(struct qm_portal_config *pcfg)
+static struct qman_portal *init_pcfg(struct qm_portal_config *pcfg,
+ bool need_cleanup)
 {
-	struct qman_portal *p;
+struct qman_portal *p;
 
-	pcfg->iommu_domain = NULL;
-	portal_set_cpu(pcfg, pcfg->public_cfg.cpu);
-	p = qman_create_affine_portal(pcfg, NULL, false);
+pcfg->iommu_domain = NULL;
+portal_set_cpu(pcfg, pcfg->public_cfg.cpu);
+p = qman_create_affine_portal(pcfg, NULL, need_cleanup);
 	if (p) {
 		u32 irq_sources = 0;
 		/* Determine what should be interrupt-vs-poll driven */
@@ -777,16 +778,17 @@ __init int qman_init(void)
 	struct device_node *dn;
 	struct qm_portal_config *pcfg;
 	struct qman_portal *p;
-	int cpu, ret;
-	const u32 *clk;
-	struct cpumask offline_cpus;
+int cpu, ret;
+const u32 *clk;
+struct cpumask offline_cpus;
+bool need_cleanup = false;
 
-	/* Initialise the Qman (CCSR) device */
-	for_each_compatible_node(dn, NULL, "fsl,qman") {
-		if (!qman_init_ccsr(dn))
-			pr_info("Qman err interrupt handler present\n");
-		else
-			pr_err("Qman CCSR setup failed\n");
+/* Initialise the Qman (CCSR) device */
+for_each_compatible_node(dn, NULL, "fsl,qman") {
+if (!qman_init_ccsr(dn, &need_cleanup))
+pr_info("Qman err interrupt handler present\n");
+else
+pr_err("Qman CCSR setup failed\n");
 
 		clk = of_get_property(dn, "clock-frequency", NULL);
 		if (!clk)
@@ -892,20 +894,20 @@ __init int qman_init(void)
 			list_add_tail(&pcfg->list, &shared_pcfgs);
 		}
 	}
-	list_for_each_entry(pcfg, &unshared_pcfgs, list) {
-		pcfg->public_cfg.is_shared = 0;
-		p = init_pcfg(pcfg);
-		if (!p) {
-			pr_crit("Unable to configure portals\n");
-			return 0;
-		}
-	}
-	list_for_each_entry(pcfg, &shared_pcfgs, list) {
-		pcfg->public_cfg.is_shared = 1;
-		p = init_pcfg(pcfg);
-		if (p)
-			shared_portals[num_shared_portals++] = p;
-	}
+list_for_each_entry(pcfg, &unshared_pcfgs, list) {
+pcfg->public_cfg.is_shared = 0;
+p = init_pcfg(pcfg, need_cleanup);
+if (!p) {
+pr_crit("Unable to configure portals\n");
+return 0;
+}
+}
+list_for_each_entry(pcfg, &shared_pcfgs, list) {
+pcfg->public_cfg.is_shared = 1;
+p = init_pcfg(pcfg, need_cleanup);
+if (p)
+shared_portals[num_shared_portals++] = p;
+}
 	if (!cpumask_empty(&slave_cpus))
 		for_each_cpu(cpu, &slave_cpus)
 			init_slave(cpu);

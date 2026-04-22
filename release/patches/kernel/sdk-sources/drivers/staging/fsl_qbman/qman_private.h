@@ -213,7 +213,7 @@ extern u16 qman_portal_max;
 
 #ifdef CONFIG_FSL_QMAN_CONFIG
 /* Hooks from qman_driver.c to qman_config.c */
-int qman_init_ccsr(struct device_node *node);
+int qman_init_ccsr(struct device_node *node, bool *need_cleanup);
 void qman_liodn_fixup(u16 channel);
 int qman_set_sdest(u16 channel, unsigned int cpu_idx);
 size_t get_qman_fqd_size(void);
