@@ -824,10 +824,14 @@ static int check_mmap_portal(struct ctx *ctx, struct vm_area_struct *vma,
 		ret = check_mmap_resource(&portal->phys[DPA_PORTAL_CE], vma,
 					  match, pfn);
 		if (*match) {
-vma->vm_page_prot =
 #if defined(CONFIG_ARM) || defined(CONFIG_ARM64)
-pgprot_cached(vma->vm_page_prot);
+/* Default vm_page_prot on arm64 is already cacheable
+ * (normal memory) for user mmap; no pgprot_cached() helper
+ * exists on arm/arm64. Leave page prot unchanged for the
+ * cache-enabled portal window.
+ */
 #else
+vma->vm_page_prot =
 pgprot_cached_noncoherent(vma->vm_page_prot);
 #endif
 			return ret;
