@@ -36,6 +36,8 @@
 
  @Description   FM MURAM ...
 *//***************************************************************************/
+#include <linux/slab.h>
+
 #include "error_ext.h"
 #include "std_ext.h"
 #include "mm_ext.h"
@@ -46,6 +48,13 @@
 
 #define __ERR_MODULE__  MODULE_FM_MURAM
 
+#ifndef DBG_UCODE_RESVD_MURAM_SIZE
+#define DBG_UCODE_RESVD_MURAM_SIZE 0
+#endif
+
+/* Exported globals used by PCD debug/ehash helpers */
+void     *FmMurambaseAddr;
+uint32_t  FmMuramsize;
 
 typedef struct
 {
