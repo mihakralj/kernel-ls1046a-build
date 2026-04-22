@@ -7580,6 +7580,25 @@ t_Error FM_PCD_MatchTableGetIndexedHashBucket(t_Handle h_CcNode,
 
 t_Handle FM_PCD_HashTableSet(t_Handle h_FmPcd, t_FmPcdHashTableParams *p_Param)
 {
+    /* ASK-6.6 fix: restore the local variable declarations that were
+     * stripped when the USE_ENHANCED_EHASH / external-hash code paths
+     * were excised from this translation unit. All variables below are
+     * used unconditionally by the function body.
+     */
+    t_FmPcdCcNodeParams         *p_ExactMatchCcNodeParam = NULL;
+    t_FmPcdCcNodeParams         *p_IndxHashCcNodeParam   = NULL;
+    t_FmPcdCcNode               *p_CcNode                = NULL;
+    t_FmPcdCcNode               *p_CcNodeHashTbl         = NULL;
+    t_FmPcdCcKeyParams          *p_HashKeyParams         = NULL;
+    t_Handle                     h_MissStatsCounters     = NULL;
+    uint16_t                     countMask               = 0;
+    uint16_t                     numOfSets               = 0;
+    uint16_t                     numOfWays               = 0;
+    uint8_t                      onesCount               = 0;
+    int                          i                       = 0;
+    bool                         statsEnForMiss          = FALSE;
+    t_Error                      err                     = E_OK;
+
     SANITY_CHECK_RETURN_VALUE(h_FmPcd, E_INVALID_HANDLE, NULL);
     SANITY_CHECK_RETURN_VALUE(p_Param, E_NULL_POINTER, NULL);
 
@@ -7902,11 +7921,17 @@ t_Error FM_PCD_HashTableModifyMissMonitorAddr(
     SANITY_CHECK_RETURN_ERROR(h_HashTbl, E_INVALID_HANDLE);
     SANITY_CHECK_RETURN_ERROR(monitorAddr, E_NULL_POINTER);
 
-#if (DPAA_VERSION >= 11)
+    /* ASK-6.6 fix: the external-hash branch requires USE_ENHANCED_EHASH,
+     * whose declarations / implementations were removed from this TU.
+     * Guard the call to ExternalHashTableModifyMissMonitorAddr() the same
+     * way the rest of the file guards external-hash helpers, and fall
+     * through to E_NOT_SUPPORTED when enhanced ehash is not compiled in.
+     */
+#if (DPAA_VERSION >= 11) && defined(USE_ENHANCED_EHASH)
     if (p_HashTbl->externalHash)
         return ExternalHashTableModifyMissMonitorAddr(h_HashTbl, monitorAddr);
     else
-#endif /* (DPAA_VERSION >= 11) */
+#endif /* (DPAA_VERSION >= 11) && USE_ENHANCED_EHASH */
         return E_NOT_SUPPORTED;
 }
 
