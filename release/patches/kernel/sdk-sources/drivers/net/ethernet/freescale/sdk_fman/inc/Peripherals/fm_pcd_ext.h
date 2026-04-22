@@ -3557,7 +3557,10 @@ t_Error FM_PCD_MatchTableGetKeyStatistics(t_Handle                  h_CcNode,
 t_Error FM_PCD_MatchTableGetMissStatistics(t_Handle                  h_CcNode,
                                            t_FmPcdCcKeyStatistics    *p_MissStatistics);
 
-#ifndef USE_ENHANCED_EHASH
+/* ASK-6.6 fix: removed orphaned `#ifndef USE_ENHANCED_EHASH` that had
+ * no matching `#endif` (bug #1 in reference/FIXES.md). The inner
+ * `#ifndef USE_ENHANCED_EHASH` starting at the HashTableRemoveKey
+ * block further down still has its closing `#endif` and remains. */
 /**************************************************************************//**
  @Function      FM_PCD_MatchTableFindNGetKeyStatistics
 
