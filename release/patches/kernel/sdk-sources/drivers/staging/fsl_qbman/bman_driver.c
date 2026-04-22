@@ -191,7 +191,7 @@ static struct bm_portal_config * __init parse_pcfg(struct device_node *node)
 		goto err;
 
 #if defined(CONFIG_ARM) || defined(CONFIG_ARM64)
-	pcfg->addr_virt[DPA_PORTAL_CE] = ioremap_cache_ns(
+	pcfg->addr_virt[DPA_PORTAL_CE] = ioremap_cache(
                                 pcfg->addr_phys[DPA_PORTAL_CE].start,
                                 resource_size(&pcfg->addr_phys[DPA_PORTAL_CE]));
         pcfg->addr_virt[DPA_PORTAL_CI] = ioremap(
