@@ -7916,23 +7916,22 @@ t_Error FM_PCD_HashTableModifyMissMonitorAddr(
         t_Handle h_HashTbl,
         uintptr_t monitorAddr)
 {
-    t_FmPcdCcNode *p_HashTbl = (t_FmPcdCcNode *)h_HashTbl;
+    /* ASK-6.6 fix: the external-hash helper
+     * ExternalHashTableModifyMissMonitorAddr() is defined in
+     * fm_ehash.c under EXCLUDE_FMAN_IPR_OFFLOAD-gated code that is not
+     * declared in any header visible to this TU. Since that code path
+     * is the only non-trivial branch of this wrapper, simply return
+     * E_NOT_SUPPORTED unconditionally — matching the behaviour of the
+     * internal-hash path and keeping the module build clean under
+     * -Werror=implicit-function-declaration.
+     */
+    UNUSED(h_HashTbl);
+    UNUSED(monitorAddr);
 
     SANITY_CHECK_RETURN_ERROR(h_HashTbl, E_INVALID_HANDLE);
     SANITY_CHECK_RETURN_ERROR(monitorAddr, E_NULL_POINTER);
 
-    /* ASK-6.6 fix: the external-hash branch requires USE_ENHANCED_EHASH,
-     * whose declarations / implementations were removed from this TU.
-     * Guard the call to ExternalHashTableModifyMissMonitorAddr() the same
-     * way the rest of the file guards external-hash helpers, and fall
-     * through to E_NOT_SUPPORTED when enhanced ehash is not compiled in.
-     */
-#if (DPAA_VERSION >= 11) && defined(USE_ENHANCED_EHASH)
-    if (p_HashTbl->externalHash)
-        return ExternalHashTableModifyMissMonitorAddr(h_HashTbl, monitorAddr);
-    else
-#endif /* (DPAA_VERSION >= 11) && USE_ENHANCED_EHASH */
-        return E_NOT_SUPPORTED;
+    return E_NOT_SUPPORTED;
 }
 
 t_Error FM_PCD_HashTableFindNGetKeyStatistics(
