@@ -42,8 +42,17 @@ diff -urN a/drivers/net/ethernet/freescale/Makefile b/drivers/net/ethernet/frees
  
  obj-y += enetc/
 +
-+obj-$(CONFIG_FSL_SDK_DPAA_ETH) += sdk_dpaa/
++# Order matters: sdk_fman MUST come before sdk_dpaa. Both compile
++# built-in (=y) and use module_init (= device_initcall), so init order
++# follows Makefile/link order. If sdk_dpaa initialises first, fsl_mac
++# probes before the FMan platform_driver is registered, fm_bind() returns
++# NULL, fsl_mac fails with -ENODEV, then fsl_dpa fails with -EINVAL via
++# dev_get_drvdata(mac)=NULL. Symptom on Mono Gateway (ask11/ask12):
++#   fsl_mac 1ae2000.ethernet: fm_bind(fman@1a00000) failed
++#   fsl_dpa soc:fsl,dpaa:ethernet@*: probe failed with error -22
++# followed by FMan only initialising ~200 ms later.
 +obj-$(CONFIG_FSL_SDK_FMAN) += sdk_fman/
++obj-$(CONFIG_FSL_SDK_DPAA_ETH) += sdk_dpaa/
 diff -urN a/drivers/staging/Kconfig b/drivers/staging/Kconfig
 --- a/drivers/staging/Kconfig
 +++ b/drivers/staging/Kconfig
