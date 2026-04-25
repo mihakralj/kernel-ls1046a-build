@@ -7250,7 +7250,7 @@ diff -urN ask-pristine/cdx/control_vlan.c /root/lts_6.6_ls1046a/work/reference/c
  
 diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/devman.c
 --- a/cdx/devman.c	2026-04-16 11:06:00.000000000 +0000
-+++ b/cdx/devman.c	2026-04-25 05:25:18.686679178 +0000
++++ b/cdx/devman.c	2026-04-25 05:53:49.030855314 +0000
 @@ -275,7 +275,7 @@
  		return;
  	}
@@ -8579,7 +8579,15 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return NULL;
  	}
  	priv = netdev_priv(device);
-@@ -2877,28 +2946,32 @@
+@@ -2858,6 +2927,7 @@
+ }
+ 
+ 
++#if defined(CONFIG_CPE_FAST_PATH)
+ static void virt_iface_stats_callback(struct net_device *dev, struct rtnl_link_stats64 *storage)
+ {
+ 	struct dpa_iface_info *iface_info;
+@@ -2877,42 +2947,51 @@
  		//if stats is disabled on the iface do nothing
  		if (!(iface_info->if_flags & IF_STATS_ENABLED))
  			break;
@@ -8633,7 +8641,8 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		iface_info = iface_info->next;
  	}
  	spin_unlock(&dpa_devlist_lock);
-@@ -2906,13 +2979,17 @@
+ }
++#endif
  
  static void devman_deinit_linux_stats(void)
  {
@@ -8651,7 +8660,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  	register_cdx_deinit_func(devman_deinit_linux_stats);
  	/* init number active connecions counter */
  	atomic_set(&num_active_connections, 0);
-@@ -2934,7 +3011,7 @@
+@@ -2934,7 +3013,7 @@
  		}
  		iface_info = iface_info->next;
  	}
