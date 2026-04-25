@@ -37,7 +37,7 @@ diff -urN a/drivers/net/ethernet/freescale/Kconfig b/drivers/net/ethernet/freesc
 diff -urN a/drivers/net/ethernet/freescale/Makefile b/drivers/net/ethernet/freescale/Makefile
 --- a/drivers/net/ethernet/freescale/Makefile
 +++ b/drivers/net/ethernet/freescale/Makefile
-@@ -25,3 +25,6 @@
+@@ -25,3 +25,15 @@
  obj-$(CONFIG_FSL_DPAA2_ETH) += dpaa2/
  
  obj-y += enetc/
