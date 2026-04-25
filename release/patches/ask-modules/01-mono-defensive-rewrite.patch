@@ -4919,7 +4919,7 @@ diff -urN ask-pristine/cdx/control_bridge.c /root/lts_6.6_ls1046a/work/reference
  
 diff -urN ask-pristine/cdx/control_ipsec.c /root/lts_6.6_ls1046a/work/reference/cdx/control_ipsec.c
 --- a/cdx/control_ipsec.c	2026-04-16 11:06:00.000000000 +0000
-+++ b/cdx/control_ipsec.c	2026-04-25 07:50:36.107935019 +0000
++++ b/cdx/control_ipsec.c	2026-04-25 08:24:27.351532599 +0000
 @@ -142,11 +142,11 @@
  	{
  		slist_for_each(pEntry, entry, &sa_cache_by_h[i], list_h)
@@ -5166,7 +5166,7 @@ diff -urN ask-pristine/cdx/control_ipsec.c /root/lts_6.6_ls1046a/work/reference/
 + * M_ipsec_sa_cache_lookup_by_h. Provide a no-op stub so cdx.ko links;
 + * userspace IPsec offload paths are inactive without the kernel hooks. */
 +#ifndef DPA_IPSEC_OFFLOAD
-+void *M_ipsec_sa_cache_lookup_by_h(unsigned short handle) { (void)handle; return NULL; }
++void *M_ipsec_sa_cache_lookup_by_h(unsigned short handle) { (void)handle; return (void *)0; }
 +#endif
 diff -urN ask-pristine/cdx/control_ipsec.h /root/lts_6.6_ls1046a/work/reference/cdx/control_ipsec.h
 --- a/cdx/control_ipsec.h	2026-04-16 11:06:00.000000000 +0000
