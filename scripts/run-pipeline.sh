@@ -295,19 +295,20 @@ if (( DO_ASK_EXTRAS )); then
         ASK_IPTABLES_STATUS="refused (kernel build failed)"
         ASK_PPP_STATUS="refused (kernel build failed)"
     else
-        # Layer 1 + 2: OOT kernel modules (currently blocked on NXP FMan SDK)
-        run_step_softfail 1 "build ASK OOT modules (cdx/fci/auto_bridge)" \
+        # Layer 1 + 2: OOT kernel modules.
+        # Exit 77 = soft-skip (NXP FMan SDK layer absent in tree); any other
+        # non-zero is a real build failure that aborts the pipeline. This
+        # tightening was added after ask21–ask26 silently shipped releases
+        # without ask-modules.deb because a hard build error was masked by
+        # `run_step_softfail 1` swallowing exit 1.
+        run_step_softfail 77 "build ASK OOT modules (cdx/fci/auto_bridge)" \
             "$SCRIPTS_DIR/build-ask-modules.sh"
-        if (( LAST_EXIT == 0 )); then
-            # Disambiguate: the script exits 0 both when a .deb is built and
-            # when it intentionally skips (NXP FMan SDK absent). Look for the
-            # .deb to tell them apart.
-            if compgen -G "$WORK_DIR/build/ask-modules-*.deb" >/dev/null; then
-                ASK_MODULES_STATUS="built (ask-modules-*.deb)"
-            else
-                ASK_MODULES_STATUS="skipped (NXP FMan SDK not layered — see build log)"
-            fi
+        if (( LAST_EXIT == 77 )); then
+            ASK_MODULES_STATUS="skipped (NXP FMan SDK not layered — see build log)"
+        elif (( LAST_EXIT == 0 )); then
+            ASK_MODULES_STATUS="built (ask-modules-*.deb)"
         else
+            # Unreachable: run_step_softfail aborted on any other non-zero.
             ASK_MODULES_STATUS="build-ask-modules failed"
         fi
 

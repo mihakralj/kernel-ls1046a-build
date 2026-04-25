@@ -23,8 +23,11 @@
 #   work/ask-oot/build/{cdx,fci,auto_bridge}.ko  (intermediate, stripped)
 #
 # Exit codes:
-#   0  .deb built and placed in work/build/
-#   1  missing prerequisites, build failure, or packaging failure
+#   0   .deb built and placed in work/build/
+#   1   missing prerequisites, build failure, or packaging failure
+#   77  soft-skip: NXP linux-lsdk FMan SDK layer absent in kernel tree
+#       (run-pipeline.sh tolerates this via run_step_softfail 77; any other
+#       non-zero exit is treated as a hard build failure)
 
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
@@ -129,8 +132,11 @@ if [[ ! -f "$NCSW_MK" ]]; then
     dim "   to enable ASK OOT modules, layer the NXP linux-lsdk sdk_fman/"
     dim "   subtree into release/patches/kernel/sdk-sources/ so that"
     dim "   ncsw_config.mk is installed by apply-to-tree.sh"
+    # Use a distinct soft-skip exit code so run-pipeline.sh can
+    # tolerate this case via run_step_softfail 77 while still
+    # hard-failing on any other non-zero exit (real build errors).
     info "ASK OOT modules: SKIPPED (SDK FMan layer absent) — not a build failure"
-    exit 0
+    exit 77
 fi
 
 # Extract the three module trees from the bare mirror
