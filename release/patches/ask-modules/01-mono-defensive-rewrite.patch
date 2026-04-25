@@ -26,7 +26,16 @@ diff -urN ask-pristine/cdx/Kbuild /root/lts_6.6_ls1046a/work/reference/cdx/Kbuil
 -	dpa_wifi.o voip.o cdx_qos.o vsp_cfg.o procfs.o
 diff -urN ask-pristine/cdx/Makefile /root/lts_6.6_ls1046a/work/reference/cdx/Makefile
 --- a/cdx/Makefile	2026-04-16 11:06:00.000000000 +0000
-+++ b/cdx/Makefile	2026-04-20 15:07:07.960836639 +0000
++++ b/cdx/Makefile	2026-04-25 05:25:18.686679178 +0000
+@@ -49,7 +49,7 @@
+ ccflags-y += $(CFG_FLAGS)
+ 
+ #ccflags-y += -DDPAA_DEBUG_ENABLE
+-ccflags-y +=  -DDPA_IPSEC_OFFLOAD
++# ccflags-y +=  -DDPA_IPSEC_OFFLOAD  # disabled: kernel CONFIG_INET_IPSEC_OFFLOAD off (patch 004 incomplete on 6.6.y)
+ 
+ dpa_if_objs = devman.o\
+                  cdx_debug.o\
 @@ -68,8 +68,7 @@
  		cdx_ifstats.o\
  		control_rtp_relay.o\
@@ -7241,7 +7250,7 @@ diff -urN ask-pristine/cdx/control_vlan.c /root/lts_6.6_ls1046a/work/reference/c
  
 diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/devman.c
 --- a/cdx/devman.c	2026-04-16 11:06:00.000000000 +0000
-+++ b/cdx/devman.c	2026-04-20 15:07:07.965836672 +0000
++++ b/cdx/devman.c	2026-04-25 05:25:18.686679178 +0000
 @@ -275,7 +275,7 @@
  		return;
  	}
@@ -8140,8 +8149,8 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		DPA_ERROR("%s::get_dpa_eth_iface_info failed\n", 
 -				__func__); 
 +				__FUNCTION__); 
- 		goto err_ret;
- 	}
++		goto err_ret;
++	}
 +#if 0
 +	//add entry to pppoe table
 +	if (insert_entry_in_pppoe_table(parent->eth_info.fman_idx, 
@@ -8150,8 +8159,8 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
 +				__FUNCTION__); 
 +		//remove it from our list
 +		dpa_release_interface(itf->index);
-+		goto err_ret;
-+	}
+ 		goto err_ret;
+ 	}
 +#endif
  	iface_pppoe_count++;
  	return SUCCESS;
@@ -8624,7 +8633,25 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		iface_info = iface_info->next;
  	}
  	spin_unlock(&dpa_devlist_lock);
-@@ -2934,7 +3007,7 @@
+@@ -2906,13 +2979,17 @@
+ 
+ static void devman_deinit_linux_stats(void)
+ {
++#if defined(CONFIG_CPE_FAST_PATH)
+ 	dev_fp_stats_get_deregister();
++#endif
+ 	return;
+ }
+ 
+ int devman_init_linux_stats(void)
+ {
++#if defined(CONFIG_CPE_FAST_PATH)
+ 	dev_fp_stats_get_register(virt_iface_stats_callback);
++#endif
+ 	register_cdx_deinit_func(devman_deinit_linux_stats);
+ 	/* init number active connecions counter */
+ 	atomic_set(&num_active_connections, 0);
+@@ -2934,7 +3011,7 @@
  		}
  		iface_info = iface_info->next;
  	}
