@@ -4919,7 +4919,7 @@ diff -urN ask-pristine/cdx/control_bridge.c /root/lts_6.6_ls1046a/work/reference
  
 diff -urN ask-pristine/cdx/control_ipsec.c /root/lts_6.6_ls1046a/work/reference/cdx/control_ipsec.c
 --- a/cdx/control_ipsec.c	2026-04-16 11:06:00.000000000 +0000
-+++ b/cdx/control_ipsec.c	2026-04-20 15:07:07.962836652 +0000
++++ b/cdx/control_ipsec.c	2026-04-25 07:50:36.107935019 +0000
 @@ -142,11 +142,11 @@
  	{
  		slist_for_each(pEntry, entry, &sa_cache_by_h[i], list_h)
@@ -5155,6 +5155,19 @@ diff -urN ask-pristine/cdx/control_ipsec.c /root/lts_6.6_ls1046a/work/reference/
  			sa, pSec_sa_context, handle, pSec_sa_context->to_sec_fqid) ; 
  #endif 
  
+@@ -1254,3 +1277,12 @@
+ 	cdx_timer_del(&sa_timer);
+ }
+ #endif  // DPA_IPSEC_OFFLOAD
++
++/* ASK 6.6 stub: when DPA_IPSEC_OFFLOAD is disabled the entire body of
++ * this file is preprocessed out, but callers in control_ipv4.c,
++ * control_ipv6.c, cdx_dpa_ipsec.c, query_ipsec.c still link against
++ * M_ipsec_sa_cache_lookup_by_h. Provide a no-op stub so cdx.ko links;
++ * userspace IPsec offload paths are inactive without the kernel hooks. */
++#ifndef DPA_IPSEC_OFFLOAD
++void *M_ipsec_sa_cache_lookup_by_h(unsigned short handle) { (void)handle; return NULL; }
++#endif
 diff -urN ask-pristine/cdx/control_ipsec.h /root/lts_6.6_ls1046a/work/reference/cdx/control_ipsec.h
 --- a/cdx/control_ipsec.h	2026-04-16 11:06:00.000000000 +0000
 +++ b/cdx/control_ipsec.h	2026-04-20 15:07:07.962836652 +0000
@@ -7273,8 +7286,25 @@ diff -urN ask-pristine/cdx/control_vlan.c /root/lts_6.6_ls1046a/work/reference/c
  
 diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/devman.c
 --- a/cdx/devman.c	2026-04-16 11:06:00.000000000 +0000
-+++ b/cdx/devman.c	2026-04-25 05:53:49.030855314 +0000
-@@ -275,7 +275,7 @@
++++ b/cdx/devman.c	2026-04-25 07:55:53.714219839 +0000
+@@ -72,6 +72,16 @@
+ 
+ struct dpa_iface_info *dpa_get_phys_iface(struct dpa_iface_info *iface_info);
+ 
++/* ASK 6.6 stub: FM_VSP_GetRelativeProfileId is declared in SDK FMan
++ * headers but never exported by drivers/net/ethernet/freescale/sdk_fman/
++ * on 6.6.135. Provide a local fallback so cdx.ko links; rspid
++ * resolution falls back to 0 (SDK default profile). */
++static unsigned char FM_VSP_GetRelativeProfileId(void *h_VSP)
++{
++    (void)h_VSP;
++    return 0;
++}
++
+ /*count for physical,vlan,tunnel interfaces.*/
+ uint8_t iface_count;
+ 
+@@ -275,7 +285,7 @@
  		return;
  	}
  	DPA_INFO("%s::unsupported iface type flags %x\n",
@@ -7283,7 +7313,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  }
  #else
  #define display_iface_info(x)
-@@ -298,7 +298,7 @@
+@@ -298,7 +308,7 @@
  					(QMAN_FQ_FLAG_DYNAMIC_FQID | QMAN_FQ_FLAG_TO_DCPORTAL),
  					fq)) {
  			DPA_ERROR("%s::unable to create fq at index %d\n",
@@ -7292,7 +7322,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			goto err_ret;
  		}
  		memset(&opts, 0, sizeof(struct qm_mcc_initfq));
-@@ -320,7 +320,7 @@
+@@ -320,7 +330,7 @@
  		opts.fqd.context_a.lo = 0xC0000000;
  		if (qman_init_fq(fq, QMAN_INITFQ_FLAG_SCHED, &opts)) {
  			DPA_ERROR("%s::qman_init_fq failed for fqid %d\n",
@@ -7301,7 +7331,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			qman_destroy_fq(fq, 0);
  			goto err_ret;
  		}
-@@ -328,7 +328,7 @@
+@@ -328,7 +338,7 @@
  		cdx_create_type_fqid_info_in_procfs(fq, TX_DIR, iface_info->tx_proc_entry, NULL);
  #ifdef DEVMAN_DEBUG
  		DPA_INFO("%s::created fq 0x%x chnl id 0x%x\n", 
@@ -7310,7 +7340,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  #endif
  		fq++;
  	}
-@@ -340,19 +340,19 @@
+@@ -340,19 +350,19 @@
  	for (; ii > 0; ii--, fq--) {
  		if (qman_retire_fq(fq, NULL)) {
  			DPA_ERROR("%s::Failed to retire FQ %x(%d)\n", 
@@ -7333,7 +7363,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  #endif
  	}
  	return FAILURE;
-@@ -372,19 +372,19 @@
+@@ -372,19 +382,19 @@
  	for (ii = 0; ii < DPAA_FWD_TX_QUEUES; ii++) {
  		if (qman_retire_fq(fq, NULL)) {
  			DPA_ERROR("%s::Failed to retire FQ %x(%d)\n", 
@@ -7356,7 +7386,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  #endif
  		fq++;
  	}
-@@ -393,42 +393,93 @@
+@@ -393,42 +403,93 @@
  #endif /* endif for VOIP_PRIORITY_SLOW_PATH_FRAME_QUEUES */
  
  struct net_device *find_osdev_by_fman_params(uint32_t fm_idx, uint32_t port_idx,
@@ -7484,7 +7514,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  }
  
  
-@@ -446,7 +497,7 @@
+@@ -446,7 +507,7 @@
  
  	device = dev_get_by_name(&init_net, name);	
  	if (!device) {
@@ -7493,7 +7523,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  	priv = netdev_priv(device);
-@@ -472,7 +523,7 @@
+@@ -472,7 +533,7 @@
  		{
  #ifdef DEVMAN_DEBUG
  			DPA_INFO("%s::iface %s, fqid %d, channel %d, wq %d, type %d\n",
@@ -7502,7 +7532,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					dpa_fq->fqid, dpa_fq->channel, dpa_fq->wq,
  					dpa_fq->fq_type);
  #endif
-@@ -518,7 +569,7 @@
+@@ -518,7 +579,7 @@
  	//number of buffer pools in use by this port
  	eth_info->num_pools = (int)priv->bp_count;
  	if (eth_info->num_pools > MAX_PORT_BMAN_POOLS) {
@@ -7511,7 +7541,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  	bp = priv->dpa_bp;
-@@ -539,7 +590,7 @@
+@@ -539,7 +600,7 @@
  				&eth_info->tx_channel_id, 
  				&eth_info->tx_wq)) {
  		DPA_ERROR("%s::dpa_get_tx_chnl_info failed\n", 
@@ -7520,7 +7550,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  	return SUCCESS;
-@@ -636,7 +687,7 @@
+@@ -636,7 +697,7 @@
  
  	if (!egress_fq) {
  		DPA_ERROR("%s::unable to get ceetm fqid for chnl %d queue %d\n",
@@ -7529,7 +7559,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	} 
  	*tx_fqid = egress_fq->fqid;
-@@ -655,7 +706,7 @@
+@@ -655,7 +716,7 @@
  
  	iface_info =  dpa_get_phys_iface(iface_info);
  	if (!iface_info) {
@@ -7538,7 +7568,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  
-@@ -702,7 +753,7 @@
+@@ -702,7 +763,7 @@
  		{
  			if (cdx_get_tx_dscp_fq_map(eth_info, is_dscp_fq_map, NULL) != 0)
  			{
@@ -7547,7 +7577,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				return FAILURE;
  			}
  		}
-@@ -728,7 +779,7 @@
+@@ -728,7 +789,7 @@
  	while(iface) {
  		if (iface->if_flags & IF_TYPE_VLAN) {
  			if (l2_info->num_egress_vlan_hdrs == DPA_CLS_HM_MAX_VLANs) {
@@ -7556,7 +7586,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				break;
  			}
  			l2_info->egress_vlan_hdrs[l2_info->num_egress_vlan_hdrs].tpid = 0x8100;
-@@ -739,7 +790,7 @@
+@@ -739,7 +800,7 @@
  			l2_info->vlan_stats_offsets[l2_info->num_egress_vlan_hdrs] =
  				iface->txstats_index;
  #ifdef DEVMAN_DEBUG
@@ -7565,7 +7595,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					iface->txstats_index);
  #endif
  #endif
-@@ -748,7 +799,7 @@
+@@ -748,7 +809,7 @@
  			iface = iface->vlan_info.parent;
  #ifdef DEVMAN_DEBUG
  			DPA_INFO("%s::moving to parent iface %s id %d\n",
@@ -7574,7 +7604,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  #endif
  		}
  		else if (iface->if_flags & IF_TYPE_PPPOE) {
-@@ -765,7 +816,7 @@
+@@ -765,7 +826,7 @@
  			iface = iface->pppoe_info.parent;
  #ifdef DEVMAN_DEBUG
  			DPA_INFO("%s::moving to parent iface %s id %d\n",
@@ -7583,7 +7613,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  #endif
  		}
  		else if (iface->if_flags & IF_TYPE_ETHERNET ) {
-@@ -788,7 +839,7 @@
+@@ -788,7 +849,7 @@
  		}
  		else {
  			DPA_ERROR("%s::iface type %x not supported \n",
@@ -7592,7 +7622,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			return FAILURE;
  		}
  	}
-@@ -796,7 +847,7 @@
+@@ -796,7 +857,7 @@
  	/* Get tx fqid*/
  	if (dpa_get_tx_fqid_devinfo_by_iface(iface_info, &(l2_info->fqid), &(l2_info->is_dscp_fq_map), NULL, NULL, hash)) {
  		DPA_ERROR("%s::faied to get tx fqid iface(%s)\n",
@@ -7601,7 +7631,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  
-@@ -821,13 +872,13 @@
+@@ -821,13 +882,13 @@
  
  	if (!iface_info) {
  		spin_unlock(&dpa_devlist_lock);
@@ -7617,7 +7647,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  
-@@ -863,7 +914,7 @@
+@@ -863,7 +924,7 @@
  						DPA_CLS_HM_MAX_VLANs) {
  					DPA_INFO("%s::too many vlan "
  							"headers \n",
@@ -7626,7 +7656,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					break;
  				}
  				l2_info->ingress_vlan_hdrs[l2_info->num_ingress_vlan_hdrs].tpid = ETHERTYPE_VLAN;
-@@ -897,9 +948,9 @@
+@@ -897,9 +958,9 @@
  				if ((!parent) || (parent == iface_info))
  				{
  					DPA_ERROR("%s(%d) iface_info %p, parent %p \n",
@@ -7638,7 +7668,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					return FAILURE;
  				}
  				iface_info = parent;
-@@ -907,7 +958,7 @@
+@@ -907,7 +968,7 @@
  
  			}
  			DPA_ERROR("%s::unsupported type 0x%x\n",
@@ -7647,7 +7677,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			break;
  		} 
  		iface_info = iface_info->next;
-@@ -930,7 +981,7 @@
+@@ -930,7 +991,7 @@
  			device = dev_get_by_name(&init_net, iface_info->name);
  			if (!device)
  			{
@@ -7656,7 +7686,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				goto next_iface;
  			}
  
-@@ -952,7 +1003,7 @@
+@@ -952,7 +1013,7 @@
  									tx_fqid, NULL, portid, netdev, hash);
  							if (ret < 0)
  							{
@@ -7665,7 +7695,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  								dev_put(device);
  								rcu_read_unlock();
  								goto end;
-@@ -983,7 +1034,7 @@
+@@ -983,7 +1044,7 @@
  									tx_fqid, NULL, portid, netdev, hash);
  							if (ret < 0)
  							{
@@ -7674,7 +7704,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  								dev_put(device);
  								read_unlock_bh(&inet6_device->lock);
  								rcu_read_unlock();
-@@ -1057,7 +1108,7 @@
+@@ -1057,7 +1118,7 @@
  			if (dir_in) {
  				l2_info->vlan_present = 1;
  				if (l2_info->num_ingress_vlan_hdrs >= DPA_CLS_HM_MAX_VLANs) {
@@ -7683,7 +7713,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					retval = FAILURE;
  					break;
  				}
-@@ -1068,7 +1119,7 @@
+@@ -1068,7 +1129,7 @@
  			}
  			else {
  				if (l2_info->num_egress_vlan_hdrs == DPA_CLS_HM_MAX_VLANs) {
@@ -7692,7 +7722,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					retval = FAILURE;
  					break;
  				}
-@@ -1115,7 +1166,7 @@
+@@ -1115,7 +1176,7 @@
  		} else {
  			DPA_INFO("%s::iface type %x not "
  					"supported \n",
@@ -7701,7 +7731,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			break;
  		}
  	}
-@@ -1140,7 +1191,7 @@
+@@ -1140,7 +1201,7 @@
  	if(!rt_entry)
  	{
  		DPA_ERROR("%s::NULL Route \n",
@@ -7710,7 +7740,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return retval;
  	}
  	itf_id = rt_entry->itf->index;
-@@ -1194,7 +1245,7 @@
+@@ -1194,7 +1255,7 @@
  				break;
  			if (cdx_get_tx_dscp_fq_map(eth_info, &l2_info->is_dscp_fq_map, NULL) != 0)
  			{
@@ -7719,7 +7749,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				break;
  			}
  			l2_info->dscp_vlanpcp_map_enable = 
-@@ -1219,7 +1270,7 @@
+@@ -1219,7 +1280,7 @@
  					DPA_CLS_HM_MAX_VLANs) {
  				DPA_INFO("%s::too many vlan "
  						"headers \n",
@@ -7728,7 +7758,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				break;
  			}
  			//move to parent interface
-@@ -1227,7 +1278,7 @@
+@@ -1227,7 +1288,7 @@
  #ifdef DEVMAN_DEBUG
  			DPA_INFO("%s::moving to parent "
  					"iface %s id %d\n",
@@ -7737,7 +7767,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					parent->itf_id);
  #endif
  			if (!src_mac)
-@@ -1251,7 +1302,7 @@
+@@ -1251,7 +1312,7 @@
  #ifdef DEVMAN_DEBUG
  			DPA_INFO("%s::moving to parent "
  					"iface %s id %d\n",
@@ -7746,7 +7776,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					parent->itf_id);
  #endif
  			l2_info->pppoe_sess_id = 
-@@ -1267,12 +1318,12 @@
+@@ -1267,12 +1328,12 @@
  			if (!parent || (iface_info == parent))
  			{
  				DPA_ERROR("%s(%d) SOME THING WRONG , parent(%p) and iface(%p) are same \n",
@@ -7761,7 +7791,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					parent->itf_id);
  			l3_info->add_tnl_header = 1;
  			l3_info->header_size = iface_info->tunnel_info.header_size;
-@@ -1309,7 +1360,7 @@
+@@ -1309,7 +1370,7 @@
  		} else {
  			DPA_INFO("%s::iface type %x not "
  					"supported \n",
@@ -7770,7 +7800,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			break;
  		}
  	}
-@@ -1332,20 +1383,20 @@
+@@ -1332,20 +1393,20 @@
  check_parent:
  			if (iface_info->if_flags & IF_TYPE_ETHERNET) {
  #ifdef DEVMAN_DEBUG
@@ -7794,7 +7824,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  #endif
  				(*num_entries)++;
  				iface_info = iface_info->vlan_info.parent;
-@@ -1354,7 +1405,7 @@
+@@ -1354,7 +1415,7 @@
  			if (iface_info->if_flags & IF_TYPE_PPPOE)
  			{
  #ifdef DEVMAN_DEBUG
@@ -7803,7 +7833,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  #endif
  				iface_info = iface_info->pppoe_info.parent;
  				goto check_parent;
-@@ -1362,20 +1413,20 @@
+@@ -1362,20 +1423,20 @@
  			if ((iface_info->if_flags & IF_TYPE_TUNNEL) && (underlying_iif))
  			{
  #ifdef DEVMAN_DEBUG
@@ -7827,7 +7857,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			break;
  		} 
  		iface_info = iface_info->next;
-@@ -1404,14 +1455,14 @@
+@@ -1404,14 +1465,14 @@
  	if(!rt_entry->input_itf || !rt_entry->underlying_input_itf)
  	{
  		DPA_ERROR("%s::NULL Input interface \n",
@@ -7844,7 +7874,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret;
  	}
  
-@@ -1480,7 +1531,7 @@
+@@ -1480,7 +1541,7 @@
  				goto err_ret;
  			if (cdx_get_tx_dscp_fq_map(eth_info, &l2_info->is_dscp_fq_map, qosinfo) != 0)
  			{
@@ -7853,7 +7883,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				goto err_ret;
  			}
  			l2_info->dscp_vlanpcp_map_enable = 
-@@ -1510,7 +1561,7 @@
+@@ -1510,7 +1571,7 @@
  					DPA_CLS_HM_MAX_VLANs) {
  				DPA_INFO("%s::too many vlan "
  						"headers \n",
@@ -7862,7 +7892,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				break;
  			}
  			//move to parent interface
-@@ -1518,7 +1569,7 @@
+@@ -1518,7 +1579,7 @@
  #ifdef DEVMAN_DEBUG
  			DPA_INFO("%s::moving to parent "
  					"iface %s id %d\n",
@@ -7871,7 +7901,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					parent->itf_id);
  #endif
  			if (!src_mac)
-@@ -1537,7 +1588,7 @@
+@@ -1537,7 +1598,7 @@
  			l2_info->vlan_stats_offsets[l2_info->num_egress_vlan_hdrs] = 
  				iface_info->txstats_index;	
  #ifdef DEVMAN_DEBUG
@@ -7880,7 +7910,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					iface_info->txstats_index);
  #endif
  #endif
-@@ -1552,7 +1603,7 @@
+@@ -1552,7 +1613,7 @@
  #ifdef DEVMAN_DEBUG
  			DPA_INFO("%s::moving to parent "
  					"iface %s id %d\n",
@@ -7889,7 +7919,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					parent->itf_id);
  #endif
  			l2_info->pppoe_sess_id = 
-@@ -1577,13 +1628,13 @@
+@@ -1577,13 +1638,13 @@
  #ifdef DEVMAN_DEBUG
  			DPA_INFO("%s::moving to parent "
  					"iface %s id %d\n",
@@ -7905,7 +7935,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				retval = FAILURE;
  				goto err_ret;
  			}
-@@ -1602,7 +1653,7 @@
+@@ -1602,7 +1663,7 @@
  			{
  				if(is_ipv6_addr_any(l3_info->remote_ip)) {
  					if(!tnl_rt_entry) {
@@ -7914,7 +7944,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  						retval = FAILURE;
  						goto err_ret;
  					}
-@@ -1614,7 +1665,7 @@
+@@ -1614,7 +1675,7 @@
  			{
  				if(!l3_info->remote_ip[0]) { // Remote address ANY
  					if(!tnl_rt_entry) {
@@ -7923,7 +7953,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  						retval = FAILURE;
  						goto err_ret;
  					}
-@@ -1633,7 +1684,7 @@
+@@ -1633,7 +1694,7 @@
  		} else {
  			DPA_INFO("%s::iface type %x not "
  					"supported \n",
@@ -7932,7 +7962,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			break;
  		}
  	}
-@@ -1659,7 +1710,7 @@
+@@ -1659,7 +1720,7 @@
  						NULL, NULL, hash)) {
  				spin_unlock(&dpa_devlist_lock);
  				DPA_ERROR("%s::faied to get tx fqid iface(%s)\n",
@@ -7941,7 +7971,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				return FAILURE;
  			}
  			spin_unlock(&dpa_devlist_lock);
-@@ -1751,7 +1802,7 @@
+@@ -1751,7 +1812,7 @@
  
  	iface_info = dpa_get_ifinfo_by_itfid(iif_index);
  	if (!iface_info) {
@@ -7950,7 +7980,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  
-@@ -1803,7 +1854,7 @@
+@@ -1803,7 +1864,7 @@
  				if(!parent || (parent == iface_info))
  				{
  					DPA_ERROR("%s(%d) SOME THING WRONG , parent(%p) and iface(%p) are same \n",
@@ -7959,7 +7989,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					return FAILURE;
  				}
  				iface_info = parent;
-@@ -1863,7 +1914,7 @@
+@@ -1863,7 +1924,7 @@
  
  #ifdef DEVMAN_DEBUG
  			printk("%s::removed iface %s, type %d\n",
@@ -7968,7 +7998,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					curr_info->if_flags);
  #endif		
  			if(curr_info->if_flags & IF_TYPE_PPPOE)
-@@ -1937,7 +1988,7 @@
+@@ -1937,7 +1998,7 @@
  	if (!port->h_Dev)
  	{
  		DPA_ERROR("%s::no handle for eth dev %s\n",
@@ -7977,7 +8007,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  
-@@ -1948,7 +1999,7 @@
+@@ -1948,7 +2009,7 @@
  	if (FM_PORT_SetDiscardMask(port->h_Dev, ErrDiscard) != 0)
  	{
  		DPA_ERROR("%s:: failed to set eth dev %s port ErrorsToDiscard configuration.\n",
@@ -7986,7 +8016,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  	return SUCCESS;
-@@ -1964,16 +2015,16 @@
+@@ -1964,16 +2025,16 @@
  	if(iface_count >= (MAX_LOGICAL_INTERFACES - MAX_PPPoE_INTERFACES))
  	{
  		DPA_ERROR("%s::Number of interfaces support in fast path is only %d\n",
@@ -8006,7 +8036,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				(uint32_t)sizeof(struct dpa_iface_info));
  		return FAILURE;
  	}
-@@ -1985,18 +2036,18 @@
+@@ -1985,18 +2046,18 @@
  	//get rest of info from config 
  	if (get_dpa_eth_iface_info(&iface_info->eth_info, name)) {
  		DPA_ERROR("%s::get_dpa_eth_iface_info failed %s\n", 
@@ -8028,7 +8058,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret1;
  	}
  
-@@ -2004,12 +2055,12 @@
+@@ -2004,12 +2065,12 @@
  	mac_dev = priv->mac_dev;
  	iface_info->eth_info.hardwarePortId = fm_port_get_hwid(mac_dev->port_dev[RX]);
  #ifdef CDX_DPA_DEBUG
@@ -8043,7 +8073,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret2;
  	}
  	dpa_set_eth_ifinfo(priv, iface_info->stats);
-@@ -2022,19 +2073,18 @@
+@@ -2022,19 +2083,18 @@
  	//add to list
  	if (dpa_add_port_to_list(iface_info)) {
  		DPA_ERROR("%s::dpa_add_port_to_list failed\n",
@@ -8069,7 +8099,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret4;
  	}
  
-@@ -2045,7 +2095,7 @@
+@@ -2045,7 +2105,7 @@
  	/* with the above errors in bman driver, so turning off them. */
  	if (dpa_bman_reconfigure_discard_mask(iface_info)) {
  		DPA_ERROR("%s::dpa_add_policier_profile failed\n",
@@ -8078,7 +8108,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret5;
  	}
  #endif
-@@ -2054,21 +2104,21 @@
+@@ -2054,21 +2114,21 @@
  	/* enable CEETM on this interface */
  	if (cdx_enable_ceetm_on_iface(iface_info)) {
  		DPA_ERROR("%s::cdx_enable_ceetm_on_iface failed\n",
@@ -8103,7 +8133,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret8;
  	}
  #endif
-@@ -2091,9 +2141,8 @@
+@@ -2091,9 +2151,8 @@
  #endif
  	/*TODO: Remove ff policer profile. */
  err_ret4:
@@ -8115,7 +8145,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  err_ret2:
  	proc_remove(((cdx_proc_dir_entry_t *)(iface_info->pcd_proc_entry))->proc_dir);
  err_ret1:
-@@ -2112,27 +2161,27 @@
+@@ -2112,27 +2171,27 @@
  	if(iface_pppoe_count >= MAX_PPPoE_INTERFACES)
  	{
  		DPA_ERROR("%s::Number of pppoe interfaces support in fast path is only %d\n",
@@ -8148,7 +8178,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				(uint32_t)sizeof(struct dpa_iface_info));
  		return FAILURE;
  	}
-@@ -2147,7 +2196,7 @@
+@@ -2147,7 +2206,7 @@
  	parent = dpa_get_ifinfo_by_itfid(itf->phys->index);
  	if (!parent) {
  		DPA_ERROR("%s::no ifinfo for dev idx %d\n", 
@@ -8157,7 +8187,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		spin_unlock(&dpa_devlist_lock);
  		goto err_ret;
  	}
-@@ -2157,7 +2206,7 @@
+@@ -2157,7 +2216,7 @@
  	spin_unlock(&dpa_devlist_lock);
  #ifdef INCLUDE_PPPoE_IFSTATS
  	if (alloc_iface_stats(itf->type, iface_info) != SUCCESS) {
@@ -8166,14 +8196,14 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret;
  	}
  	iface_info->if_flags |= IF_STATS_ENABLED;
-@@ -2168,9 +2217,20 @@
+@@ -2168,9 +2227,20 @@
  	//add to list
  	if (dpa_add_port_to_list(iface_info)) {
  		DPA_ERROR("%s::get_dpa_eth_iface_info failed\n", 
 -				__func__); 
 +				__FUNCTION__); 
-+		goto err_ret;
-+	}
+ 		goto err_ret;
+ 	}
 +#if 0
 +	//add entry to pppoe table
 +	if (insert_entry_in_pppoe_table(parent->eth_info.fman_idx, 
@@ -8182,13 +8212,13 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
 +				__FUNCTION__); 
 +		//remove it from our list
 +		dpa_release_interface(itf->index);
- 		goto err_ret;
- 	}
++		goto err_ret;
++	}
 +#endif
  	iface_pppoe_count++;
  	return SUCCESS;
  err_ret:
-@@ -2186,28 +2246,28 @@
+@@ -2186,28 +2256,28 @@
  	if(iface_count >= (MAX_LOGICAL_INTERFACES - MAX_PPPoE_INTERFACES))
  	{
  		DPA_ERROR("%s::Number of interfaces support in fast path is only %d\n",
@@ -8222,7 +8252,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				(uint32_t)sizeof(struct dpa_iface_info));
  		return FAILURE;
  	}
-@@ -2222,7 +2282,7 @@
+@@ -2222,7 +2292,7 @@
  	parent = dpa_get_ifinfo_by_itfid(itf->phys->index);
  	if (!parent) {
  		DPA_ERROR("%s::no ifinfo for dev idx %d\n", 
@@ -8231,7 +8261,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		spin_unlock(&dpa_devlist_lock);
  		goto err_ret;
  	}
-@@ -2233,7 +2293,7 @@
+@@ -2233,7 +2303,7 @@
  	/* allocate interface statistics memory */
  #ifdef INCLUDE_VLAN_IFSTATS
  	if (alloc_iface_stats(itf->type, iface_info) != SUCCESS) {
@@ -8240,7 +8270,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret;
  	}
  	iface_info->if_flags |= IF_STATS_ENABLED;
-@@ -2244,7 +2304,7 @@
+@@ -2244,7 +2314,7 @@
  	//add to list
  	if (dpa_add_port_to_list(iface_info)) {
  		DPA_ERROR("%s::get_dpa_eth_iface_info failed\n", 
@@ -8249,7 +8279,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret;
  	}
  	iface_count++;
-@@ -2263,23 +2323,23 @@
+@@ -2263,23 +2333,23 @@
  
  	device = dev_get_by_name(&init_net, iface_info->name);
  	if (!device) {
@@ -8277,7 +8307,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  	return SUCCESS;
  }
  
-@@ -2289,10 +2349,10 @@
+@@ -2289,10 +2359,10 @@
  
  	//ethernet/physical iface type
  	iface_info = (struct dpa_iface_info *)
@@ -8290,7 +8320,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				(uint32_t)sizeof(struct dpa_iface_info));
  		return FAILURE;
  	}
-@@ -2310,7 +2370,7 @@
+@@ -2310,7 +2380,7 @@
  	//add to list
  	if (dpa_add_port_to_list(iface_info)) {
  		DPA_ERROR("%s::get_dpa_eth_iface_info failed\n",
@@ -8299,7 +8329,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret;
  	}
  
-@@ -2403,7 +2463,7 @@
+@@ -2403,7 +2473,7 @@
  				itf_index = iface_info->itf_id;
  #ifdef DEVMAN_DEBUG
  				DPA_INFO("%s::moving to parent iface %s id %d\n",
@@ -8308,7 +8338,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  #endif
  				goto check_parent;
  			}
-@@ -2412,7 +2472,7 @@
+@@ -2412,7 +2482,7 @@
  				itf_index = iface_info->itf_id;
  #ifdef DEVMAN_DEBUG
  				DPA_INFO("%s::moving to parent iface %s id %d\n",
@@ -8317,7 +8347,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  #endif
  				goto check_parent;
  			}
-@@ -2421,14 +2481,14 @@
+@@ -2421,14 +2491,14 @@
  				if(underlying_iif_index == itf_index)
  				{
  					DPA_ERROR("%s::underlying iface info cannot be same as itf_index\n",
@@ -8334,7 +8364,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					spin_unlock(&dpa_devlist_lock);
  					return FAILURE;
  				}
-@@ -2437,12 +2497,12 @@
+@@ -2437,12 +2507,12 @@
  				itf_index = iface_info->itf_id;
  #ifdef DEVMAN_DEBUG
  				DPA_INFO("%s::moving to parent iface %s id %d\n",
@@ -8349,7 +8379,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				break;
  			}
  		}
-@@ -2459,7 +2519,7 @@
+@@ -2459,7 +2529,7 @@
  
  	if (!(itf)) {
  		DPA_ERROR("%s::null dev for tunnel _itf\n", 
@@ -8358,7 +8388,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return FAILURE;
  	}
  
-@@ -2467,7 +2527,7 @@
+@@ -2467,7 +2537,7 @@
  	if((iface_info = dpa_get_ifinfo_by_itfid(itf->index)) == NULL){
  
  		DPA_ERROR("%s::iface info does not exist\n", 
@@ -8367,7 +8397,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		spin_unlock(&dpa_devlist_lock);
  		return FAILURE;
  	}
-@@ -2488,7 +2548,7 @@
+@@ -2488,7 +2558,7 @@
  		parent = dpa_get_ifinfo_by_itfid(phys_itf->index);
  		if (!parent) {
  			DPA_ERROR("%s::no ifinfo for dev idx %d\n", 
@@ -8376,7 +8406,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			spin_unlock(&dpa_devlist_lock);
  			return FAILURE;
  		}
-@@ -2509,7 +2569,7 @@
+@@ -2509,7 +2579,7 @@
  	spin_unlock(&dpa_devlist_lock);
  	return SUCCESS;
  #else
@@ -8385,7 +8415,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  	return FAILURE;
  #endif
  }
-@@ -2523,7 +2583,7 @@
+@@ -2523,7 +2593,7 @@
  	if(iface_count >= (MAX_LOGICAL_INTERFACES - MAX_PPPoE_INTERFACES))
  	{
  		DPA_ERROR("%s::Number of interfaces support in fast path is only %d\n",
@@ -8394,20 +8424,20 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				(MAX_LOGICAL_INTERFACES - MAX_PPPoE_INTERFACES));
  		return FAILURE;
  	}
-@@ -2531,14 +2591,21 @@
+@@ -2531,14 +2601,21 @@
  
  	if (!(itf)) {
  		DPA_ERROR("%s::null dev for tunnel _itf\n", 
 -				__func__); 
 +				__FUNCTION__); 
-+		return FAILURE;
-+	}
+ 		return FAILURE;
+ 	}
 +#if 0 
 +	if (!(phys_itf)) {
 +		DPA_ERROR("%s::null dev for phys_itf\n", 
 +				__FUNCTION__); 
- 		return FAILURE;
- 	}
++		return FAILURE;
++	}
 +#endif
  	iface_info = (struct dpa_iface_info *)
 -		kzalloc(sizeof(struct dpa_iface_info), GFP_KERNEL);  
@@ -8419,7 +8449,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  				(uint32_t)sizeof(struct dpa_iface_info));
  		return FAILURE;
  	}
-@@ -2566,7 +2633,7 @@
+@@ -2566,7 +2643,7 @@
  		parent = dpa_get_ifinfo_by_itfid(phys_itf->index);
  		if (!parent || (parent == iface_info)) {
  			DPA_ERROR("%s::no ifinfo (%p) for dev idx %d, or matching with parent(%p)\n", 
@@ -8428,7 +8458,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			spin_unlock(&dpa_devlist_lock);
  			goto err_ret;
  		}
-@@ -2586,7 +2653,7 @@
+@@ -2586,7 +2663,7 @@
  	spin_unlock(&dpa_devlist_lock);
  #ifdef INCLUDE_TUNNEL_IFSTATS
  	if (alloc_iface_stats(itf->type, iface_info) != SUCCESS) {
@@ -8437,7 +8467,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret;
  	}
  	iface_info->if_flags |= IF_STATS_ENABLED;
-@@ -2597,7 +2664,7 @@
+@@ -2597,7 +2674,7 @@
  	//add to list
  	if (dpa_add_port_to_list(iface_info)) {
  		DPA_ERROR("%s::get_dpa_eth_iface_info failed\n", 
@@ -8446,7 +8476,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		goto err_ret;
  	}
  	iface_count++;
-@@ -2606,13 +2673,15 @@
+@@ -2606,13 +2683,15 @@
  	kfree(iface_info);
  	return FAILURE;
  #else
@@ -8463,7 +8493,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  	FM_PCD_UpdateExtTimeStamp(EXTERNAL_TIMESTAMP_TIMERID, cpu_to_be32(ts));
  }
  
-@@ -2650,7 +2719,7 @@
+@@ -2650,7 +2729,7 @@
  	fq = &dpa_fq->fq_base;
  	if (qman_create_fq(dpa_fq->fqid, flags, fq)) {
  		DPA_ERROR("%s::qman_create_fq failed for fqid %d\n",
@@ -8472,7 +8502,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return -1;
  	}
  	memset(&opts, 0, sizeof(struct qm_mcc_initfq));
-@@ -2670,14 +2739,14 @@
+@@ -2670,14 +2749,14 @@
  	opts.fqd.context_a.stashing.annotation_cl = NUM_ANN_LINES_IN_CACHE;
  	if (qman_init_fq(fq, QMAN_INITFQ_FLAG_SCHED, &opts)) {
  		DPA_ERROR("%s::qman_init_fq failed for fqid %d\n",
@@ -8489,7 +8519,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			dpa_fq->fqid, dpa_fq->channel);
  #endif
  	return 0;
-@@ -2712,39 +2781,39 @@
+@@ -2712,39 +2791,39 @@
  	}
  	if (!num_portals) {
  		DPA_ERROR("%s::unable to get affined portal info\n",
@@ -8536,7 +8566,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  						eth_iface_info->net_dev);
  #endif
  				dpa_fq->net_dev = eth_iface_info->net_dev;
-@@ -2763,20 +2832,20 @@
+@@ -2763,20 +2842,20 @@
  				//create PCD FQ
  				if (cdx_create_fq(dpa_fq, 0, iface_info->pcd_proc_entry)) {
  					DPA_ERROR("%s::cdx_create_fq failed for fqid %d\n",
@@ -8560,7 +8590,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  			}
  #endif
  			fqid++;
-@@ -2796,20 +2865,20 @@
+@@ -2796,20 +2875,20 @@
  		if (!iface_info)
  			break;
  #ifdef DEVMAN_DEBUG
@@ -8584,7 +8614,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  					return -1;
  				}
  			}
-@@ -2839,7 +2908,7 @@
+@@ -2839,7 +2918,7 @@
  		}
  		iface_info = iface_info->next;
  	}
@@ -8593,7 +8623,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  	return -1;
  }
  
-@@ -2850,7 +2919,7 @@
+@@ -2850,7 +2929,7 @@
  
  	device = dev_get_by_name(&init_net, name);
  	if (!device) {
@@ -8602,7 +8632,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  		return NULL;
  	}
  	priv = netdev_priv(device);
-@@ -2858,6 +2927,7 @@
+@@ -2858,6 +2937,7 @@
  }
  
  
@@ -8610,7 +8640,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  static void virt_iface_stats_callback(struct net_device *dev, struct rtnl_link_stats64 *storage)
  {
  	struct dpa_iface_info *iface_info;
-@@ -2877,42 +2947,51 @@
+@@ -2877,42 +2957,51 @@
  		//if stats is disabled on the iface do nothing
  		if (!(iface_info->if_flags & IF_STATS_ENABLED))
  			break;
@@ -8683,7 +8713,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
  	register_cdx_deinit_func(devman_deinit_linux_stats);
  	/* init number active connecions counter */
  	atomic_set(&num_active_connections, 0);
-@@ -2934,7 +3013,7 @@
+@@ -2934,7 +3023,7 @@
  		}
  		iface_info = iface_info->next;
  	}
