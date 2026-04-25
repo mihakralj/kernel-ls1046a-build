@@ -249,7 +249,7 @@ index 202e557496fb..34092cceec20 100644
  };
  #define to_net_dev(d) container_of(d, struct net_device, dev)
  
-@@ -3108,10 +3112,27 @@ u16 dev_pick_tx_cpu_id(struct net_device *dev, struct sk_buff *skb,
+@@ -3108,10 +3112,29 @@ u16 dev_pick_tx_cpu_id(struct net_device *dev, struct sk_buff *skb,
  int __dev_queue_xmit(struct sk_buff *skb, struct net_device *sb_dev);
  int __dev_direct_xmit(struct sk_buff *skb, u16 queue_id);
  
@@ -263,9 +263,11 @@ index 202e557496fb..34092cceec20 100644
 +
 +static inline int dev_queue_xmit(struct sk_buff *skb)
 +{
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
 +	if (dpaa_wifi_xmit_local_ipsec_handler && skb->ipsec_offload &&
 +	    skb->dev->wifi_offload_dev)
 +		return dpaa_wifi_xmit_local_ipsec_handler(skb);
++#endif
 +	return original_dev_queue_xmit(skb);
 +}
 +#else
