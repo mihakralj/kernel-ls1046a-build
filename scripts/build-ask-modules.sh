@@ -250,13 +250,23 @@ begin_group "compile OOT modules (cdx → fci → auto_bridge)"
 : > "$BUILD_ROOT/Module.symvers"
 build_mod cdx
 build_mod fci
-build_mod auto_bridge
+# auto_bridge requires kernel-side LSDK-specific patches (brevent_fdb_update,
+# sk_buff::abm_ff, register_brevent_notifier) not present in mainline 6.6.135.
+# Build it as best-effort: log a warning and continue if it fails so the
+# package still ships cdx+fci.
+AB_OK=1
+if ! ( build_mod auto_bridge ); then
+    AB_OK=0
+    warn "auto_bridge build failed; shipping cdx+fci only"
+fi
+MODS=(cdx fci)
+(( AB_OK )) && MODS+=(auto_bridge)
 end_group
 
 # ── Verify vermagic ─────────────────────────────────────────────────────
 begin_group "verify module vermagic matches kernel"
 vermagic_ok=1
-for m in cdx fci auto_bridge; do
+for m in "${MODS[@]}"; do
     vm=$(objdump -t "$BUILD_ROOT/${m}.ko" 2>/dev/null \
         | grep -oE '__module_depends|__versions' | head -1 || true)
     # Extract vermagic string from the .modinfo section
@@ -279,16 +289,14 @@ end_group
 # ── Stage for packaging ─────────────────────────────────────────────────
 MOD_DIR="$STAGING/lib/modules/$KRELEASE/extra/ask"
 mkdir -p "$MOD_DIR"
-cp -v "$BUILD_ROOT"/{cdx,fci,auto_bridge}.ko "$MOD_DIR/" >/dev/null
+for m in "${MODS[@]}"; do cp -v "$BUILD_ROOT/${m}.ko" "$MOD_DIR/" >/dev/null; done
 
 mkdir -p "$STAGING/etc/modules-load.d"
-cat > "$STAGING/etc/modules-load.d/ask.conf" <<'EOF'
-# Load NXP ASK fast-path modules at boot.
-# Order matters: cdx provides symbols consumed by fci and auto_bridge.
-cdx
-fci
-auto_bridge
-EOF
+{
+    echo "# Load NXP ASK fast-path modules at boot."
+    echo "# Order matters: cdx provides symbols consumed by fci (and auto_bridge)."
+    for m in "${MODS[@]}"; do echo "$m"; done
+} > "$STAGING/etc/modules-load.d/ask.conf"
 
 # DEBIAN control metadata
 PKG_VER="${KVER}-1"
@@ -356,7 +364,7 @@ printf '   version:    %s\n' "$PKG_VER"
 printf '   depends on: linux-image-%s (= %s)\n' "$KRELEASE" "$PKG_VER"
 printf '   file:       %s\n' "$DEB_FILE"
 printf '   modules:\n'
-for m in cdx fci auto_bridge; do
+for m in "${MODS[@]}"; do
     printf '     /lib/modules/%s/extra/ask/%s.ko (%s)\n' \
         "$KRELEASE" "$m" "$(du -h "$BUILD_ROOT/${m}.ko" | cut -f1)"
 done
