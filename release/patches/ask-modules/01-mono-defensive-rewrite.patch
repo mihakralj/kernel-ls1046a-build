@@ -7183,8 +7183,18 @@ diff -urN ask-pristine/cdx/control_tunnel.h /root/lts_6.6_ls1046a/work/reference
  #define TNL_GRE_VERSION		0x0
 diff -urN ask-pristine/cdx/control_vlan.c /root/lts_6.6_ls1046a/work/reference/cdx/control_vlan.c
 --- a/cdx/control_vlan.c	2026-04-16 11:06:00.000000000 +0000
-+++ b/cdx/control_vlan.c	2026-04-20 15:07:07.964836665 +0000
-@@ -124,7 +124,7 @@
++++ b/cdx/control_vlan.c	2026-04-25 04:00:20.438399196 +0000
+@@ -112,8 +112,7 @@
+ 			break;
+ 
+ found:
+-			if (device)
+-				device->wifi_offload_dev = NULL;
++			/* if (device) device->wifi_offload_dev = NULL; -- wifi_offload_dev field removed */
+ 			vlan_remove(pEntry);
+ 			vlan_free(pEntry);
+ 			break;
+@@ -124,7 +123,7 @@
  			parent_device = dev_get_by_name(&init_net, vlancmd.phyifname);
  
  			if ((!device) || (!parent_device)){
@@ -7193,7 +7203,18 @@ diff -urN ask-pristine/cdx/control_vlan.c /root/lts_6.6_ls1046a/work/reference/c
  				rc = FAILURE;
  				break;
  			}
-@@ -396,13 +396,13 @@
+@@ -175,8 +174,8 @@
+ 				break;
+ 			}
+ 
+-			if(parent_device->wifi_offload_dev)
+-				device->wifi_offload_dev = parent_device->wifi_offload_dev;
++			/* if(parent_device->wifi_offload_dev) */ /* wifi_offload_dev: stripped (not in upstream net_device) */
++				/* device->wifi_offload_dev = parent_device->wifi_offload_dev; */ /* wifi_offload_dev: stripped (not in upstream net_device) */
+ 
+ 			vlan_add(pEntry);
+ 
+@@ -396,13 +395,13 @@
  	if ((iface_info = dpa_get_ifinfo_by_itfid((uint32_t)pEntry->itf.index)) == NULL)
  	{
  		spin_unlock(&dpa_devlist_lock);
@@ -7209,7 +7230,7 @@ diff -urN ask-pristine/cdx/control_vlan.c /root/lts_6.6_ls1046a/work/reference/c
  		return ret;
  	}
  
-@@ -439,7 +439,7 @@
+@@ -439,7 +438,7 @@
  		if ((ret = vlan_stats_get(pStatVlanEntry, pStatVLANSnapshot,
  						gStatVlanQueryStatus & STAT_VLAN_QUERY_RESET)) != NO_ERR)
  		{
