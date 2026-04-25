@@ -7286,7 +7286,7 @@ diff -urN ask-pristine/cdx/control_vlan.c /root/lts_6.6_ls1046a/work/reference/c
  
 diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/devman.c
 --- a/cdx/devman.c	2026-04-16 11:06:00.000000000 +0000
-+++ b/cdx/devman.c	2026-04-25 07:55:53.714219839 +0000
++++ b/cdx/devman.c	2026-04-25 08:56:26.955269340 +0000
 @@ -72,6 +72,16 @@
  
  struct dpa_iface_info *dpa_get_phys_iface(struct dpa_iface_info *iface_info);
@@ -7295,7 +7295,7 @@ diff -urN ask-pristine/cdx/devman.c /root/lts_6.6_ls1046a/work/reference/cdx/dev
 + * headers but never exported by drivers/net/ethernet/freescale/sdk_fman/
 + * on 6.6.135. Provide a local fallback so cdx.ko links; rspid
 + * resolution falls back to 0 (SDK default profile). */
-+static unsigned char FM_VSP_GetRelativeProfileId(void *h_VSP)
++unsigned char FM_VSP_GetRelativeProfileId(void *h_VSP)
 +{
 +    (void)h_VSP;
 +    return 0;
