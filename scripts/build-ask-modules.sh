@@ -219,7 +219,7 @@ build_mod() {
         cd "$dir" \
             && make "${COMMON_MAKE[@]}" \
                 KBUILD_EXTRA_SYMBOLS="$extra_symvers" \
-                -j"$(nproc_any)" modules 2>&1
+                -j"$(nproc_any)" all 2>&1
     ) > "$log"
     local rc=$?
     set -e
