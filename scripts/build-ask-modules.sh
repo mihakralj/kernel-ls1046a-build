@@ -241,7 +241,34 @@ build_mod() {
     [[ -n "$ko" ]] || err "$name build succeeded but ${name}.ko not found in $dir"
     cp -v "$ko" "$BUILD_ROOT/" >/dev/null
     strip --strip-unneeded "$BUILD_ROOT/${name}.ko"
-    ok "    → $(basename "$ko") ($(du -h "$BUILD_ROOT/${name}.ko" | cut -f1))"
+
+    # Sign the module with the kernel's build-time signing key. The kernel
+    # is built with CONFIG_MODULE_SIG_FORCE=y + CONFIG_MODULE_SIG_SHA512=y
+    # (and CONFIG_MODULE_SIG_ALL=y, which auto-generates certs/signing_key.*
+    # during the in-tree build). With SIG_FORCE, the kernel REFUSES to
+    # load any unsigned module — so OOT modules MUST be signed with the
+    # same key as the in-tree modules, otherwise modprobe returns
+    # "Key was rejected by service" / -EKEYREJECTED at load time.
+    if [[ -x "$KDIR/scripts/sign-file" \
+       && -f "$KDIR/certs/signing_key.pem" \
+       && -f "$KDIR/certs/signing_key.x509" ]]; then
+        "$KDIR/scripts/sign-file" sha512 \
+            "$KDIR/certs/signing_key.pem" \
+            "$KDIR/certs/signing_key.x509" \
+            "$BUILD_ROOT/${name}.ko"
+        # Verify the signature appendix is present (sign-file appends
+        # "~Module signature appended~\n" + sig blob to the .ko file).
+        if tail -c 28 "$BUILD_ROOT/${name}.ko" \
+                | grep -q 'Module signature appended'; then
+            ok "    → $(basename "$ko") signed sha512 ($(du -h "$BUILD_ROOT/${name}.ko" | cut -f1))"
+        else
+            err "$name: sign-file ran but signature marker not found at EOF"
+        fi
+    else
+        warn "    kernel signing key not found in $KDIR/certs/ — ${name}.ko UNSIGNED"
+        warn "    (kernel has SIG_FORCE=y; this module will FAIL to load)"
+        ok "    → $(basename "$ko") ($(du -h "$BUILD_ROOT/${name}.ko" | cut -f1))"
+    fi
 
     # Merge this module's Module.symvers into the accumulator, if present
     local ms="$dir/Module.symvers"
