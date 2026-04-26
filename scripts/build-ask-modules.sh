@@ -300,11 +300,20 @@ end_group
 begin_group "verify module vermagic matches kernel"
 vermagic_ok=1
 for m in "${MODS[@]}"; do
-    vm=$(objdump -t "$BUILD_ROOT/${m}.ko" 2>/dev/null \
-        | grep -oE '__module_depends|__versions' | head -1 || true)
-    # Extract vermagic string from the .modinfo section
-    vm=$(objcopy --dump-section .modinfo=/dev/stdout "$BUILD_ROOT/${m}.ko" 2>/dev/null \
-        | tr '\0' '\n' | grep '^vermagic=' | head -1 | cut -d= -f2-)
+    # Extract vermagic from the .modinfo section.
+    #
+    # CRITICAL: `objcopy --dump-section X=path infile` (with no explicit
+    # outfile) implicitly rewrites infile in canonical ELF form on some
+    # binutils versions, dropping the appended PKCS#7 signature blob and
+    # the "~Module signature appended~" trailer. The resulting module
+    # then -EKEYREJECTED at modprobe time on a kernel with
+    # CONFIG_MODULE_SIG_FORCE=y.
+    #
+    # `strings` is purely read-only — open(O_RDONLY) — so there's no
+    # risk of un-signing the module. .modinfo is plain NUL-terminated
+    # "key=value" entries; parse vermagic= directly with grep.
+    vm=$(strings -n 1 "$BUILD_ROOT/${m}.ko" \
+            | grep '^vermagic=' | head -1 | cut -d= -f2-)
     if [[ -z "$vm" ]]; then
         warn "  $m: could not extract vermagic"
         continue
