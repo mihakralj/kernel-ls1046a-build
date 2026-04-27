@@ -1,0 +1,39 @@
+diff --git a/net/wireless/Kconfig b/net/wireless/Kconfig
+index f620acd2a0f5..3d3c91ed1932 100644
+--- a/net/wireless/Kconfig
++++ b/net/wireless/Kconfig
+@@ -1,6 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ config WIRELESS_EXT
+-	bool
++	def_bool y
+ 
+ config WEXT_CORE
+ 	def_bool y
+@@ -12,10 +12,10 @@ config WEXT_PROC
+ 	depends on WEXT_CORE
+ 
+ config WEXT_SPY
+-	bool
++	def_bool y
+ 
+ config WEXT_PRIV
+-	bool
++	def_bool y
+ 
+ config CFG80211
+ 	tristate "cfg80211 - wireless configuration API"
+diff --git a/net/wireless/wext-core.c b/net/wireless/wext-core.c
+index 73a29ee3eff2..df9477c05485 100644
+--- a/net/wireless/wext-core.c
++++ b/net/wireless/wext-core.c
+@@ -984,6 +984,9 @@ static int wireless_process_ioctl(struct net *net, struct iwreq *iwr,
+ 		else if (private)
+ 			return private(dev, iwr, cmd, info, handler);
+ 	}
++	/* Old driver API : call driver ioctl handler */
++	if (dev->netdev_ops->ndo_do_ioctl)
++		return dev->netdev_ops->ndo_do_ioctl(dev, (struct ifreq *)iwr, cmd);
+ 	return -EOPNOTSUPP;
+ }
+ 

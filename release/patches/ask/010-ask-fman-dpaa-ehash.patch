@@ -1,28 +1,44 @@
 From: ASK build tooling <ask@localhost>
-Subject: [PATCH] ASK: wire NXP SDK DPAA/FMan/QBMan Kconfig & Makefile into parents
+Subject: [PATCH] ASK: FMan/DPAA/eHash misc + wire NXP SDK Kconfig/Makefile into parents
 
-The NXP "SDK" DPAA stack is dropped into the tree by apply-to-tree.sh as:
+Combines the small Makefile/perf hooks needed by ASK with the SDK
+Kconfig+Makefile wiring so the NXP SDK DPAA/FMan/QBMan subtrees that
+apply-to-tree.sh drops in become visible to merge_config.sh and
+olddefconfig, and the parent Makefiles descend into them.
 
+Subtrees wired:
     drivers/staging/fsl_qbman/                       (BMan/QMan)
     drivers/net/ethernet/freescale/sdk_dpaa/         (SDK DPAA Ethernet)
     drivers/net/ethernet/freescale/sdk_fman/         (SDK Frame Manager)
 
-Each of those subtrees carries its own Kconfig and top-level Makefile,
-but the parent Kconfig / Makefile files do not reference them. Without
-this wiring, symbols like CONFIG_FSL_SDK_DPA, CONFIG_FSL_SDK_FMAN and
-CONFIG_FSL_SDK_DPAA_ETH are invisible to merge_config.sh and
-olddefconfig, so they are silently dropped from the final .config
-regardless of what release/ask.config requests.
-
-This patch adds the missing `source` directives and `obj-$(...)` hooks
-to the parent Kconfig/Makefile of both locations so that the SDK
-symbols become resolvable during config merge and are built when
-enabled.
-
-This is a build-system-only change; no code logic is modified.
-
-Signed-off-by: ASK build tooling <ask@localhost>
----
+diff --git a/Makefile b/Makefile
+index 022aed903173..a910077338da 100644
+--- a/Makefile
++++ b/Makefile
+@@ -138,6 +138,11 @@ export KBUILD_CLIPPY
+ 
+ # Use make M=dir or set the environment variable KBUILD_EXTMOD to specify the
+ # directory of external module to build. Setting M= takes precedence.
++
++ifdef SUBDIRS
++  KBUILD_EXTMOD ?= $(SUBDIRS)
++endif
++
+ ifeq ("$(origin M)", "command line")
+   KBUILD_EXTMOD := $(M)
+ endif
+diff --git a/tools/perf/.gitignore b/tools/perf/.gitignore
+index 5a8617eb5419..6ff95fb6267a 100644
+--- a/tools/perf/.gitignore
++++ b/tools/perf/.gitignore
+@@ -3,7 +3,6 @@ PERF-CFLAGS
+ PERF-GUI-VARS
+ PERF-VERSION-FILE
+ FEATURE-DUMP
+-perf
+ !include/perf/
+ perf-read-vdso32
+ perf-read-vdsox32
 diff -urN a/drivers/net/ethernet/freescale/Kconfig b/drivers/net/ethernet/freescale/Kconfig
 --- a/drivers/net/ethernet/freescale/Kconfig
 +++ b/drivers/net/ethernet/freescale/Kconfig

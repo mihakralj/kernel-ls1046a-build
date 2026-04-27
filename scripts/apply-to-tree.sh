@@ -2,12 +2,20 @@
 # apply-to-tree.sh — wet-run counterpart of patch-health.sh.
 #
 # Takes a clean linux-6.6.y source tree and turns it into an ASK-ready tree by:
-#   1. Copying release/patches/kernel/sdk-sources/ into the tree (67 files)
-#   2. Applying every release/patches/kernel/*.patch in sort order (-p1):
-#        001-vyos-linkstate-ip-device-attribute.patch   (VyOS: link_filter sysctl)
-#        002-vyos-inotify-stackable-filesystems.patch   (VyOS: inotify on overlayfs)
-#        003-vyos-build-linux-perf-package.patch        (VyOS: linux-perf packaging)
-#        004-ask-kernel-hooks.patch                     (ASK: DPAA/FMan hooks)
+#   1. Copying release/patches/kernel/sdk-sources/ into the tree (264 files)
+#   2. Applying every release/patches/{vyos,ask,fixes}/*.patch in subdir + name
+#      sort order (-p1). Layout mirrors ASK-mono:
+#        vyos/001..003-vyos-*.patch                     (VyOS deltas)
+#        ask/010-ask-fman-dpaa-ehash.patch              (FMan/DPAA wiring)
+#        ask/020-ask-bridge-hooks.patch                 (bridge fast-path hooks)
+#        ask/030-ask-ipv4-ipv6-forwarding.patch         (IPv4/IPv6 fast-path)
+#        ask/040-ask-xfrm-ipsec-offload.patch           (IPsec offload, gated)
+#        ask/050-ask-conntrack-offload.patch            (conntrack offload)
+#        ask/060-ask-netfilter-qosmark.patch            (netfilter + QOS xt)
+#        ask/070-ask-ppp-hooks.patch                    (PPP fast-path hooks)
+#        ask/080-wext-core-restore-ndo_do_ioctl.patch   (wext core restore)
+#        fixes/093-netlink-name-L2FLOW-cb-mutex.patch   (lockdep mutex name)
+#        fixes/094-swphy-10g-fixed-link.patch           (10G swphy fixed-link)
 #   3. Assembling .config via merge_config.sh chain:
 #        release/vyos-base/arm64/vyos_defconfig   (VyOS arm64 base)
 #      + release/vyos-base/*.config               (VyOS feature snippets)
@@ -67,45 +75,53 @@ fi
 
 # ── Resolve artefact source ─────────────────────────────────────────────
 if [[ -z "$SOURCE" ]]; then
-    if   [[ -d "$WORK_DIR/derived/patches/kernel"  ]]; then SOURCE="derived"
-    elif [[ -d "$REPO_ROOT/release/patches/kernel" ]]; then SOURCE="release"
-    else                                                     SOURCE="reference"
+    if   [[ -d "$WORK_DIR/derived/patches/ask"  ]]; then SOURCE="derived"
+    elif [[ -d "$REPO_ROOT/release/patches/ask" ]]; then SOURCE="release"
+    else                                                  SOURCE="reference"
     fi
 fi
 
 case "$SOURCE" in
     derived)
-        PATCH_DIR="$WORK_DIR/derived/patches/kernel"
+        PATCH_ROOT="$WORK_DIR/derived/patches"
         CFG_FRAG="$WORK_DIR/derived/ask.config"
         TAG="derived"
         ;;
     release)
-        PATCH_DIR="$REPO_ROOT/release/patches/kernel"
+        PATCH_ROOT="$REPO_ROOT/release/patches"
         CFG_FRAG="$REPO_ROOT/release/ask.config"
         TAG="release"
         ;;
     reference)
         [[ -d "$WORK_DIR/reference" ]] || "$SCRIPTS_DIR/fetch-reference.sh"
-        PATCH_DIR="$WORK_DIR/reference/patches/kernel"
+        PATCH_ROOT="$WORK_DIR/reference/patches"
         CFG_FRAG="$WORK_DIR/reference/config/ask.config"
         TAG="reference"
         ;;
     *) err "unknown --source '$SOURCE' (use: derived | release | reference)" ;;
 esac
 
-[[ -d "$PATCH_DIR" ]]            || err "patch dir missing: $PATCH_DIR"
+[[ -d "$PATCH_ROOT" ]]           || err "patch dir missing: $PATCH_ROOT"
 [[ -f "$CFG_FRAG" ]]             || err "config fragment missing: $CFG_FRAG"
-SDK_DIR="$PATCH_DIR/sdk-sources"
-# Collect every *.patch in $PATCH_DIR in lexical order. Numeric prefixes
-# (001-, 002-, …) define the required application sequence:
-#   VyOS patches first (so ASK hooks stack cleanly on top of VyOS deltas),
-#   ASK hooks patch last.
-mapfile -t PATCH_FILES < <(find "$PATCH_DIR" -maxdepth 1 -type f -name '*.patch' | sort)
-(( ${#PATCH_FILES[@]} > 0 )) || err "no *.patch files found in $PATCH_DIR"
+# SDK sources live under kernel/sdk-sources/ (kept there to avoid churn on
+# 264 unchanged files). Every other *.patch lives under vyos/, ask/, or fixes/.
+SDK_DIR="$PATCH_ROOT/kernel/sdk-sources"
+[[ -d "$SDK_DIR" ]] || err "SDK source dir missing: $SDK_DIR"
+# Apply order: vyos/ first (so ASK hooks stack on top of VyOS deltas),
+# then ask/ (numeric prefix 010..080 = ASK-mono buckets), then fixes/
+# (090+ = lockdep/concurrency repairs that touch ASK-introduced files).
+# Within each subdir, sort by filename.
+mapfile -t PATCH_FILES < <(
+    for sub in vyos ask fixes; do
+        [[ -d "$PATCH_ROOT/$sub" ]] || continue
+        find "$PATCH_ROOT/$sub" -maxdepth 1 -type f -name '*.patch' | sort
+    done
+)
+(( ${#PATCH_FILES[@]} > 0 )) || err "no *.patch files found under $PATCH_ROOT/{vyos,ask,fixes}/"
 
 info "applying ASK artefacts to kernel tree"
 dim  "   kernel:  linux-$KVER ($KDIR)"
-dim  "   source:  $SOURCE ($PATCH_DIR)"
+dim  "   source:  $SOURCE ($PATCH_ROOT)"
 
 # ── Idempotence guard ───────────────────────────────────────────────────
 # Record a marker so we don't re-apply onto an already-ASK tree (the hooks

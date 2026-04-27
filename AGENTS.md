@@ -33,10 +33,10 @@ rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
 bash scripts/patch-health.sh --source release
 ```
 
-Must report `Pass: 6   Fail: 0` and `0 SDK conflicts (264 files to install)`. A clean `patch-health` is **not sufficient** — `git apply` may report success even when a patch's hunk count is wrong and lines get silently truncated. After patch-health, also visually inspect the affected file:
+Must report `Pass: 13   Fail: 0` and `0 SDK conflicts (264 files to install)`. A clean `patch-health` is **not sufficient** — `git apply` may report success even when a patch's hunk count is wrong and lines get silently truncated. After patch-health, also visually inspect the affected file:
 
 ```bash
-patch -p1 -d work/linux-6.6.135 < release/patches/kernel/00X-…patch
+patch -p1 -d work/linux-6.6.135 < release/patches/ask/0X0-…patch
 grep -n <expected-content> work/linux-6.6.135/<patched-file>
 ```
 
@@ -48,16 +48,36 @@ This caught the ask13 → ask14 hunk-count bug where `@@ -25,3 +25,6 @@` truncat
 
 ## Patch Inventory
 
-Numbered patches under `release/patches/kernel/`:
+Patches are organised in three buckets that mirror ASK-mono. Apply order
+is `vyos/` → `ask/` → `fixes/`; within each bucket, sort by filename.
+
+### `release/patches/vyos/` — VyOS deltas (apply first)
 
 | # | Patch | Purpose |
 |---|---|---|
 | 001 | `vyos-linkstate-ip-device-attribute.patch` | VyOS link-state attr |
 | 002 | `vyos-inotify-stackable-filesystems.patch` | VyOS inotify on overlayfs |
 | 003 | `vyos-build-linux-perf-package.patch` | linux-perf .deb |
-| 004 | `ask-kernel-hooks.patch` | ASK kernel hooks |
-| 005 | `ask-sdk-kconfig-wiring.patch` | Wires NXP SDK Kconfig+Makefile into parents |
-| 006 | `ask-netlink-l2flow-cb-mutex-name.patch` | Lockdep mutex name |
+
+### `release/patches/ask/` — ASK fast-path (ASK-mono buckets, 010..080)
+
+| # | Patch | Purpose |
+|---|---|---|
+| 010 | `ask-fman-dpaa-ehash.patch` | FMan/DPAA misc + SDK Kconfig+Makefile wiring |
+| 020 | `ask-bridge-hooks.patch` | Bridge fast-path hooks (`abm_ff`, brevent notifier) |
+| 030 | `ask-ipv4-ipv6-forwarding.patch` | IPv4/IPv6 forwarding fast-path |
+| 040 | `ask-xfrm-ipsec-offload.patch` | IPsec offload (gated by `INET_IPSEC_OFFLOAD`) |
+| 050 | `ask-conntrack-offload.patch` | Conntrack offload (`fp_info`, `qosconnmark`) |
+| 060 | `ask-netfilter-qosmark.patch` | `comcerto_fp_netfilter.c` + xt_QOSMARK/QOSCONNMARK |
+| 070 | `ask-ppp-hooks.patch` | PPP fast-path hooks |
+| 080 | `wext-core-restore-ndo_do_ioctl.patch` | Wireless-extensions core restore |
+
+### `release/patches/fixes/` — 6.6.y-specific repairs (090+)
+
+| # | Patch | Purpose |
+|---|---|---|
+| 093 | `netlink-name-L2FLOW-cb-mutex.patch` | Lockdep mutex name (avoids dup name with NETLINK_GENERIC) |
+| 094 | `swphy-10g-fixed-link.patch` | 10G fixed-link swphy support |
 
 SDK source files (264 of them) are dropped under `release/patches/kernel/sdk-sources/` and copied into the kernel tree by `scripts/apply-to-tree.sh`.
 
@@ -73,7 +93,7 @@ ASK ships **NXP SDK drivers**, not mainline:
 
 The SDK is required because mainline doesn't expose USDPAA / FMC / `dpa_ipsec` / `fmlib` userspace ABI consumed by the ASK userspace tools (`dpa_app`, `fmc`, etc).
 
-Known SDK pitfall: `sdk_dpaa/mac.c:202` returns `-ENODEV` (not `-EPROBE_DEFER`) when `fm_bind()` finds FMan not yet probed. Mainline doesn't have this — it uses the component framework. Init order between `sdk_fman/` and `sdk_dpaa/` therefore matters; patch 005's Makefile orders `sdk_fman/` first.
+Known SDK pitfall: `sdk_dpaa/mac.c:202` returns `-ENODEV` (not `-EPROBE_DEFER`) when `fm_bind()` finds FMan not yet probed. Mainline doesn't have this — it uses the component framework. Init order between `sdk_fman/` and `sdk_dpaa/` therefore matters; patch `ask/010`'s Makefile orders `sdk_fman/` first.
 
 ## Useful Commands
 

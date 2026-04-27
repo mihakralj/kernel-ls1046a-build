@@ -44,25 +44,25 @@ KDIR="$WORK_DIR/linux-$KVER"
 # ── Resolve patch source ────────────────────────────────────────────────
 # Auto-pick priority:  work/derived/  →  release/  →  work/reference/
 if [[ -z "$SOURCE" ]]; then
-    if   [[ -d "$WORK_DIR/derived/patches/kernel" ]]; then SOURCE="derived"
-    elif [[ -d "$REPO_ROOT/release/patches/kernel" ]];  then SOURCE="release"
-    else                                                     SOURCE="reference"
+    if   [[ -d "$WORK_DIR/derived/patches/ask" ]]; then SOURCE="derived"
+    elif [[ -d "$REPO_ROOT/release/patches/ask" ]]; then SOURCE="release"
+    else                                                 SOURCE="reference"
     fi
 fi
 
 case "$SOURCE" in
     derived)
-        [[ -d "$WORK_DIR/derived/patches/kernel" ]] \
+        [[ -d "$WORK_DIR/derived/patches" ]] \
             || err "work/derived/ not found — run ./scripts/derive-patches.sh first"
-        PATCH_DIR="$WORK_DIR/derived/patches/kernel"
-        SDK_DIR="$PATCH_DIR/sdk-sources"
+        PATCH_ROOT="$WORK_DIR/derived/patches"
+        SDK_DIR="$PATCH_ROOT/kernel/sdk-sources"
         TAG="derived (work/derived)"
         ;;
     release)
-        [[ -d "$REPO_ROOT/release/patches/kernel" ]] \
+        [[ -d "$REPO_ROOT/release/patches" ]] \
             || err "release/ not found — run ./scripts/publish-release.sh first"
-        PATCH_DIR="$REPO_ROOT/release/patches/kernel"
-        SDK_DIR="$PATCH_DIR/sdk-sources"
+        PATCH_ROOT="$REPO_ROOT/release/patches"
+        SDK_DIR="$PATCH_ROOT/kernel/sdk-sources"
         RELEASE_SHA=""
         if [[ -f "$REPO_ROOT/release/manifest.json" ]]; then
             RELEASE_SHA=$(jq -r '.reference_sha // ""' "$REPO_ROOT/release/manifest.json" 2>/dev/null)
@@ -71,28 +71,28 @@ case "$SOURCE" in
         ;;
     reference)
         [[ -d "$WORK_DIR/reference" ]] || "$SCRIPTS_DIR/fetch-reference.sh"
-        PATCH_DIR="$WORK_DIR/reference/patches/kernel"
-        SDK_DIR="$PATCH_DIR/sdk-sources"
+        PATCH_ROOT="$WORK_DIR/reference/patches"
+        SDK_DIR="$PATCH_ROOT/kernel/sdk-sources"
         TAG="reference @ $(cat "$WORK_DIR/.reference-sha" 2>/dev/null | cut -c1-12)"
         ;;
     *) err "unknown --source '$SOURCE' (use: derived | release | reference)" ;;
 esac
 
-# ── Discover patch files (prefer series file) ───────────────────────────
-SERIES_FILE="$PATCH_DIR/series"
+# ── Discover patch files: vyos/ → ask/ → fixes/ ─────────────────────────
+# Patches live under three subdirs that mirror ASK-mono organisation:
+#   vyos/   → VyOS deltas (link_filter sysctl, inotify, perf packaging)
+#   ask/    → ASK fast-path bucketed by ASK-mono boundaries (010..080)
+#   fixes/  → 6.6.y-specific repairs/lockdep fixes (090+)
+# Apply order is required: vyos first, then ask, then fixes. Within each
+# subdir, sort by filename (numeric prefix orders ASK-mono buckets).
 PATCHES=()
-if [[ -f "$SERIES_FILE" ]]; then
-    while IFS= read -r line; do
-        line="${line%%#*}"; line="${line// /}"
-        [[ -n "$line" ]] && PATCHES+=("$PATCH_DIR/$line")
-    done < "$SERIES_FILE"
-    info "using series file (${#PATCHES[@]} patches)"
-else
+for sub in vyos ask fixes; do
+    [[ -d "$PATCH_ROOT/$sub" ]] || continue
     while IFS= read -r p; do PATCHES+=("$p"); done \
-        < <(find "$PATCH_DIR" -maxdepth 1 -name '*.patch' | sort)
-    dim "no series file; using sorted *.patch glob (${#PATCHES[@]} patches)"
-fi
-(( ${#PATCHES[@]} )) || err "no patches found in $PATCH_DIR"
+        < <(find "$PATCH_ROOT/$sub" -maxdepth 1 -type f -name '*.patch' | sort)
+done
+(( ${#PATCHES[@]} )) || err "no patches found under $PATCH_ROOT/{vyos,ask,fixes}/"
+dim "discovered ${#PATCHES[@]} patches across vyos/ ask/ fixes/"
 
 # ── Header ──────────────────────────────────────────────────────────────
 SUMMARY="$WORK_DIR/patch-health.txt"
@@ -100,7 +100,7 @@ SUMMARY="$WORK_DIR/patch-health.txt"
     echo "=== Patch health probe ==="
     echo "Kernel:     linux-$KVER ($KDIR)"
     echo "Source:     $SOURCE  ($TAG)"
-    echo "Patch dir:  $PATCH_DIR"
+    echo "Patch root: $PATCH_ROOT  (vyos/ ask/ fixes/)"
     echo "Patches:    ${#PATCHES[@]}"
     echo "Run at:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo
@@ -119,7 +119,8 @@ FAILED=()
 # tightens the contract so "health OK" means every hunk lands at the exact
 # line numbers in the patch, which is what a reviewer actually wants to know.
 for p in "${PATCHES[@]}"; do
-    name="$(basename "$p")"
+    # Tag with parent subdir for clarity (e.g. "ask/060-…patch")
+    name="$(basename "$(dirname "$p")")/$(basename "$p")"
     # --unsafe-paths is needed because $KDIR is an absolute path; without it
     # git apply rejects the first file as "invalid path". We are intentionally
     # applying outside any git worktree, which is what the flag unlocks.

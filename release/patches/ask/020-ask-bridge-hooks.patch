@@ -1,0 +1,480 @@
+diff --git a/include/linux/if_bridge.h b/include/linux/if_bridge.h
+index c5fe3b2a53e8..13f4363917da 100644
+--- a/include/linux/if_bridge.h
++++ b/include/linux/if_bridge.h
+@@ -69,6 +69,23 @@ void brioctl_set(int (*hook)(struct net *net, unsigned int cmd,
+ 			     void __user *uarg));
+ int br_ioctl_call(struct net *net, unsigned int cmd, void __user *uarg);
+ 
++#if defined(CONFIG_CPE_FAST_PATH)
++struct brevent_fdb_update{
++	char * mac_addr;
++	struct net_device * dev;
++	struct net_device * brdev;
++};
++
++enum brevent_notif_type {
++	BREVENT_PORT_DOWN = 1,  /* arg is struct net_device ptr */
++	BREVENT_FDB_UPDATE  /* arg is struct brevent_fdb_update ptr */
++};
++
++int register_brevent_notifier(struct notifier_block *nb);
++int unregister_brevent_notifier(struct notifier_block *nb);
++int call_brevent_notifiers(unsigned long val, void *v);
++#endif
++
+ #if IS_ENABLED(CONFIG_BRIDGE) && IS_ENABLED(CONFIG_BRIDGE_IGMP_SNOOPING)
+ int br_multicast_list_adjacent(struct net_device *dev,
+ 			       struct list_head *br_ip_list);
+diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
+index 1a91645fa249..9b7ba899e2aa 100644
+--- a/include/linux/skbuff.h
++++ b/include/linux/skbuff.h
+@@ -1003,6 +1003,13 @@ struct sk_buff {
+ 	};
+ 	__u32			priority;
+ 	int			skb_iif;
++#ifdef CONFIG_CPE_FAST_PATH
++	unsigned char		abm_ff;
++	unsigned char		expt_pkt;
++	int			iif_index;
++	int			underlying_iif;
++	__u16			underlying_vlan_tci;
++#endif
+ 	__u32			hash;
+ 	union {
+ 		u32		vlan_all;
+@@ -1026,6 +1033,14 @@ struct sk_buff {
+ 		__u32		reserved_tailroom;
+ 	};
+ 
++#ifdef CONFIG_CPE_FAST_PATH
++	__u64			qosmark;
++#endif
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
++	__u16			ipsec_offload;
++	__u16			ipsec_xfrm_dir;
++#endif
++
+ 	union {
+ 		__be16		inner_protocol;
+ 		__u8		inner_ipproto;
+diff --git a/net/bridge/br.c b/net/bridge/br.c
+index d466febcf9ab..be84fd985edb 100644
+--- a/net/bridge/br.c
++++ b/net/bridge/br.c
+@@ -484,6 +484,60 @@ static void __exit br_deinit(void)
+ 	br_fdb_fini();
+ }
+ 
++#if defined(CONFIG_CPE_FAST_PATH)
++static ATOMIC_NOTIFIER_HEAD(brevent_notif_chain);
++
++/**
++ * register_brevent_notifier - register a netevent notifier block
++ * @nb: notifier
++ *
++ * Register a notifier to be called when a bridge event occurs.
++ * The notifier passed is linked into the kernel structures and must
++ * not be reused until it has been unregistered. A negative errno code
++ * is returned on a failure.
++ */
++int register_brevent_notifier(struct notifier_block *nb)
++{
++	int err;
++
++	err = atomic_notifier_chain_register(&brevent_notif_chain, nb);
++	return err;
++}
++
++/**
++ * unregister_brevent_notifier - unregister a netevent notifier block
++ * @nb: notifier
++ *
++ * Unregister a notifier previously registered by
++ * register_neigh_notifier(). The notifier is unlinked into the
++ * kernel structures and may then be reused. A negative errno code
++ * is returned on a failure.
++ */
++
++int unregister_brevent_notifier(struct notifier_block *nb)
++{
++	return atomic_notifier_chain_unregister(&brevent_notif_chain, nb);
++}
++
++/**
++ * call_brevent_notifiers - call all netevent notifier blocks
++ *		@val: value passed unmodified to notifier function
++ *		@v:   pointer passed unmodified to notifier function
++ *
++ * Call all neighbour notifier blocks.  Parameters and return value
++ * are as for notifier_call_chain().
++ */
++
++int call_brevent_notifiers(unsigned long val, void *v)
++{
++	return atomic_notifier_call_chain(&brevent_notif_chain, val, v);
++}
++
++EXPORT_SYMBOL_GPL(register_brevent_notifier);
++EXPORT_SYMBOL_GPL(unregister_brevent_notifier);
++EXPORT_SYMBOL_GPL(call_brevent_notifiers);
++#endif
++
+ module_init(br_init)
+ module_exit(br_deinit)
+ MODULE_LICENSE("GPL");
+diff --git a/net/bridge/br_fdb.c b/net/bridge/br_fdb.c
+index fa2970db2130..98c85d5849f0 100644
+--- a/net/bridge/br_fdb.c
++++ b/net/bridge/br_fdb.c
+@@ -14,6 +14,10 @@
+ #include <linux/times.h>
+ #include <linux/netdevice.h>
+ #include <linux/etherdevice.h>
++#if defined(CONFIG_CPE_FAST_PATH)
++#include <linux/rtnetlink.h>
++#include <linux/module.h>
++#endif
+ #include <linux/jhash.h>
+ #include <linux/random.h>
+ #include <linux/slab.h>
+@@ -33,6 +37,11 @@ static const struct rhashtable_params br_fdb_rht_params = {
+ 
+ static struct kmem_cache *br_fdb_cache __read_mostly;
+ 
++#if defined(CONFIG_CPE_FAST_PATH)
++int(*br_fdb_can_expire)(unsigned char *mac_addr, struct net_device *dev) = NULL;
++DEFINE_SPINLOCK(br_fdb_cb_lock);
++#endif
++
+ int __init br_fdb_init(void)
+ {
+ 	br_fdb_cache = kmem_cache_create("bridge_fdb_cache",
+@@ -437,6 +446,20 @@ static int fdb_add_local(struct net_bridge *br, struct net_bridge_port *source,
+ 	if (!fdb)
+ 		return -ENOMEM;
+ 
++//#if defined(CONFIG_CPE_FAST_PATH)
++/*
++ * Below commented code is specific to LS1024 device unicast list.
++ * It is not applicable to other architectures.
++ */
++#if 0
++	list_for_each_entry(p, &br->port_list, list) {
++		if (source == p)
++			continue;
++
++		dev_uc_add(source->dev, p->dev->dev_addr);
++		dev_uc_add(p->dev, addr);
++	}
++#endif
+ 	fdb_add_hw_addr(br, addr);
+ 	fdb_notify(br, fdb, RTM_NEWNEIGH, true);
+ 	return 0;
+@@ -549,6 +572,17 @@ void br_fdb_cleanup(struct work_struct *work)
+ 			continue;
+ 		}
+ 
++#if defined(CONFIG_CPE_FAST_PATH)
++		spin_lock(&br_fdb_cb_lock);
++		if (br_fdb_can_expire && f->dst &&
++		    !(*br_fdb_can_expire)(f->key.addr.addr, f->dst->dev)) {
++			f->updated = jiffies;
++			spin_unlock(&br_fdb_cb_lock);
++			continue;
++		}
++		spin_unlock(&br_fdb_cb_lock);
++#endif
++
+ 		if (time_after(this_timer, now)) {
+ 			work_delay = min(work_delay, this_timer - now);
+ 		} else {
+@@ -882,6 +916,14 @@ void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
+ 			/* fastpath: update of existing entry */
+ 			if (unlikely(source != READ_ONCE(fdb->dst) &&
+ 				     !test_bit(BR_FDB_STICKY, &fdb->flags))) {
++#if defined(CONFIG_CPE_FAST_PATH)
++				struct brevent_fdb_update fdb_update;
++
++				fdb_update.dev = source->dev;
++				fdb_update.mac_addr = fdb->key.addr.addr;
++				fdb_update.brdev = br->dev;
++				call_brevent_notifiers(BREVENT_FDB_UPDATE, &fdb_update);
++#endif
+ 				br_switchdev_fdb_notify(br, fdb, RTM_DELNEIGH);
+ 				WRITE_ONCE(fdb->dst, source);
+ 				fdb_modified = true;
+@@ -1511,3 +1553,21 @@ void br_fdb_clear_offload(const struct net_device *dev, u16 vid)
+ 	spin_unlock_bh(&p->br->hash_lock);
+ }
+ EXPORT_SYMBOL_GPL(br_fdb_clear_offload);
++
++#if defined(CONFIG_CPE_FAST_PATH)
++void br_fdb_register_can_expire_cb(int(*cb)(unsigned char *mac_addr, struct net_device *dev))
++{
++	spin_lock_bh(&br_fdb_cb_lock);
++	br_fdb_can_expire = cb;
++	spin_unlock_bh(&br_fdb_cb_lock);
++}
++EXPORT_SYMBOL(br_fdb_register_can_expire_cb);
++
++void br_fdb_deregister_can_expire_cb(void)
++{
++	spin_lock_bh(&br_fdb_cb_lock);
++	br_fdb_can_expire = NULL;
++	spin_unlock_bh(&br_fdb_cb_lock);
++}
++EXPORT_SYMBOL(br_fdb_deregister_can_expire_cb);
++#endif
+diff --git a/net/bridge/br_forward.c b/net/bridge/br_forward.c
+index e9f09cdb9848..53eafbc8bccd 100644
+--- a/net/bridge/br_forward.c
++++ b/net/bridge/br_forward.c
+@@ -33,7 +33,11 @@ static inline int should_deliver(const struct net_bridge_port *p,
+ int br_dev_queue_push_xmit(struct net *net, struct sock *sk, struct sk_buff *skb)
+ {
+ 	skb_push(skb, ETH_HLEN);
+-	if (!is_skb_forwardable(skb->dev, skb))
++	if (
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
++		(!skb->ipsec_offload) && 
++#endif
++		!is_skb_forwardable(skb->dev, skb))
+ 		goto drop;
+ 
+ 	br_drop_fake_rtable(skb);
+diff --git a/net/bridge/br_input.c b/net/bridge/br_input.c
+index 847fe03a08ee..b177824019a4 100644
+--- a/net/bridge/br_input.c
++++ b/net/bridge/br_input.c
+@@ -67,6 +67,10 @@ static int br_pass_frame_up(struct sk_buff *skb, bool promisc)
+ 
+ 	BR_INPUT_SKB_CB(skb)->promisc = promisc;
+ 
++#if defined(CONFIG_CPE_FAST_PATH)
++	skb->underlying_iif = indev->ifindex;
++#endif
++
+ 	return NF_HOOK(NFPROTO_BRIDGE, NF_BR_LOCAL_IN,
+ 		       dev_net(indev), NULL, skb, indev, NULL,
+ 		       br_netif_receive_skb);
+@@ -161,6 +165,10 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
+ 	BR_INPUT_SKB_CB(skb)->brdev = br->dev;
+ 	BR_INPUT_SKB_CB(skb)->src_port_isolated = !!(p->flags & BR_ISOLATED);
+ 
++#if defined(CONFIG_CPE_FAST_PATH)
++	skb->abm_ff = 0;
++#endif
++
+ 	if (IS_ENABLED(CONFIG_INET) &&
+ 	    (skb->protocol == htons(ETH_P_ARP) ||
+ 	     skb->protocol == htons(ETH_P_RARP))) {
+@@ -209,6 +217,10 @@ int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb
+ 
+ 		if (now != READ_ONCE(dst->used))
+ 			WRITE_ONCE(dst->used, now);
++#if defined(CONFIG_CPE_FAST_PATH)
++		/* Used by ABM module */
++		skb->abm_ff = 1;
++#endif
+ 		br_forward(dst->dst, skb, local_rcv, false);
+ 	} else {
+ 		if (!mcast_hit)
+diff --git a/net/bridge/br_private.h b/net/bridge/br_private.h
+index f0d8edc378a0..7427561286c0 100644
+--- a/net/bridge/br_private.h
++++ b/net/bridge/br_private.h
+@@ -613,6 +613,11 @@ struct br_input_skb_cb {
+ #endif
+ 
+ 	u32 backup_nhid;
++
++#ifdef CONFIG_CPE_FAST_PATH
++	u16 vid;
++	u8 untagged:1;
++#endif
+ };
+ 
+ #define BR_INPUT_SKB_CB(__skb)	((struct br_input_skb_cb *)(__skb)->cb)
+@@ -849,6 +854,11 @@ int br_fdb_add_local(struct net_bridge *br, struct net_bridge_port *source,
+ void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
+ 		   const unsigned char *addr, u16 vid, unsigned long flags);
+ 
++#if defined(CONFIG_CPE_FAST_PATH)
++extern void br_fdb_register_can_expire_cb(int(*cb)(unsigned char *mac_addr, struct net_device *dev));
++extern void br_fdb_deregister_can_expire_cb(void);
++#endif
++
+ int br_fdb_delete(struct ndmsg *ndm, struct nlattr *tb[],
+ 		  struct net_device *dev, const unsigned char *addr, u16 vid,
+ 		  struct netlink_ext_ack *extack);
+diff --git a/net/bridge/br_stp_if.c b/net/bridge/br_stp_if.c
+index 75204d36d7f9..0ee39d723422 100644
+--- a/net/bridge/br_stp_if.c
++++ b/net/bridge/br_stp_if.c
+@@ -123,6 +123,10 @@ void br_stp_disable_port(struct net_bridge_port *p)
+ 
+ 	if (br_is_root_bridge(br) && !wasroot)
+ 		br_become_root_bridge(br);
++
++#if defined(CONFIG_CPE_FAST_PATH)
++	call_brevent_notifiers(BREVENT_PORT_DOWN, p->dev);
++#endif
+ }
+ 
+ static int br_stp_call_user(struct net_bridge *br, char *arg)
+diff --git a/net/bridge/br_vlan.c b/net/bridge/br_vlan.c
+index cc54b8267bcc..7bbf9f40a055 100644
+--- a/net/bridge/br_vlan.c
++++ b/net/bridge/br_vlan.c
+@@ -517,9 +517,21 @@ struct sk_buff *br_handle_vlan(struct net_bridge *br,
+ 	 * hardware on each egress port as appropriate. So only strip the VLAN
+ 	 * header if forwarding offload is not being used.
+ 	 */
++#ifdef CONFIG_CPE_FAST_PATH
++	BR_INPUT_SKB_CB(skb)->vid = vid;
++#endif
+ 	if (v->flags & BRIDGE_VLAN_INFO_UNTAGGED &&
+-	    !br_switchdev_frame_uses_tx_fwd_offload(skb))
++	    !br_switchdev_frame_uses_tx_fwd_offload(skb)) {
++#ifdef CONFIG_CPE_FAST_PATH
++		BR_INPUT_SKB_CB(skb)->untagged = true;
++#endif
+ 		__vlan_hwaccel_clear_tag(skb);
++	}
++#ifdef CONFIG_CPE_FAST_PATH
++	else {
++		BR_INPUT_SKB_CB(skb)->untagged = false;
++	}
++#endif
+ 
+ 	if (p && (p->flags & BR_VLAN_TUNNEL) &&
+ 	    br_handle_egress_vlan_tunnel(skb, v)) {
+@@ -600,6 +612,11 @@ static bool __allowed_ingress(const struct net_bridge *br,
+ 			 */
+ 			skb->vlan_tci |= pvid;
+ 
++#ifdef CONFIG_CPE_FAST_PATH
++			if(!skb->underlying_vlan_tci)
++				skb->underlying_vlan_tci = skb_vlan_tag_get(skb);
++#endif
++
+ 		/* if snooping and stats are disabled we can avoid the lookup */
+ 		if (!br_opt_get(br, BROPT_MCAST_VLAN_SNOOPING_ENABLED) &&
+ 		    !br_opt_get(br, BROPT_VLAN_STATS_ENABLED)) {
+@@ -629,6 +646,11 @@ static bool __allowed_ingress(const struct net_bridge *br,
+ 		u64_stats_update_end(&stats->syncp);
+ 	}
+ 
++#ifdef CONFIG_CPE_FAST_PATH
++	if(!skb->underlying_vlan_tci)
++		skb->underlying_vlan_tci = skb_vlan_tag_get(skb);
++#endif
++
+ 	*vlan = v;
+ 
+ 	return true;
+diff --git a/net/core/skbuff.c b/net/core/skbuff.c
+index 4c28954f915f..d8b17b5fe2d2 100644
+--- a/net/core/skbuff.c
++++ b/net/core/skbuff.c
+@@ -1381,18 +1381,32 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
+ 	skb_dst_copy(new, old);
+ 	__skb_ext_copy(new, old);
+ 	__nf_copy(new, old, false);
++#if defined(CONFIG_CPE_FAST_PATH)
++	new->qosmark    = old->qosmark;
++#endif
+ 
+ 	/* Note : this field could be in the headers group.
+ 	 * It is not yet because we do not want to have a 16 bit hole
+ 	 */
+ 	new->queue_mapping = old->queue_mapping;
+ 
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
++	new->ipsec_offload       = old->ipsec_offload;
++	new->ipsec_xfrm_dir      = old->ipsec_xfrm_dir;
++#endif
+ 	memcpy(&new->headers, &old->headers, sizeof(new->headers));
+ 	CHECK_SKB_FIELD(protocol);
+ 	CHECK_SKB_FIELD(csum);
+ 	CHECK_SKB_FIELD(hash);
+ 	CHECK_SKB_FIELD(priority);
+ 	CHECK_SKB_FIELD(skb_iif);
++#ifdef CONFIG_CPE_FAST_PATH
++	CHECK_SKB_FIELD(abm_ff);
++	CHECK_SKB_FIELD(expt_pkt);
++	CHECK_SKB_FIELD(iif_index);
++	CHECK_SKB_FIELD(underlying_iif);
++	CHECK_SKB_FIELD(underlying_vlan_tci);
++#endif
+ 	CHECK_SKB_FIELD(vlan_proto);
+ 	CHECK_SKB_FIELD(vlan_tci);
+ 	CHECK_SKB_FIELD(transport_header);
+@@ -1427,6 +1441,24 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
+ {
+ #define C(x) n->x = skb->x
+ 
++#if defined(CONFIG_COMCERTO_CUSTOM_SKB_LAYOUT)
++	if (skb->mspd_data) {
++		if (skb->mspd_len) {
++			int ofst = skb->len - skb->mspd_len;
++
++			memcpy(skb->data + ofst, skb->mspd_data + skb->mspd_ofst, skb->mspd_len);
++			skb->mspd_len = 0;
++		}
++
++		WARN_ON(skb_shared(skb));
++
++		if (!skb_shared(skb)) {
++			kfree(skb->mspd_data);
++			skb->mspd_data = NULL;
++		}
++	}
++#endif
++
+ 	n->next = n->prev = NULL;
+ 	n->sk = NULL;
+ 	__copy_skb_header(n, skb);
+@@ -1449,6 +1481,13 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
+ 	C(truesize);
+ 	refcount_set(&n->users, 1);
+ 
++#if defined(CONFIG_COMCERTO_CUSTOM_SKB_LAYOUT)
++	WARN_ON(skb->mspd_data);
++	C(mspd_data);
++	C(mspd_len);
++	C(mspd_ofst);
++#endif
++
+ 	atomic_inc(&(skb_shinfo(skb)->dataref));
+ 	skb->cloned = 1;
+ 
+@@ -2025,6 +2064,9 @@ struct sk_buff *__pskb_copy_fclone(struct sk_buff *skb, int headroom,
+ 	int flags = skb_alloc_rx_flag(skb) | (fclone ? SKB_ALLOC_FCLONE : 0);
+ 	struct sk_buff *n = __alloc_skb(size, gfp_mask, flags, NUMA_NO_NODE);
+ 
++#if defined(CONFIG_COMCERTO_CUSTOM_SKB_LAYOUT)
++	WARN_ON(skb->mspd_len);
++#endif
+ 	if (!n)
+ 		goto out;
+ 
+@@ -5865,7 +5907,15 @@ void skb_scrub_packet(struct sk_buff *skb, bool xnet)
+ 	skb->skb_iif = 0;
+ 	skb->ignore_df = 0;
+ 	skb_dst_drop(skb);
+-	skb_ext_reset(skb);
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
++	/* TODO ***
++	skb->sp is getting initialized to NULL, which is getting used in ethernet driver
++	for ipsec_offload cases. 
++	Need to revisit for a proper fix.
++	*/
++	if (!skb->ipsec_offload)
++#endif
++		skb_ext_reset(skb);
+ 	nf_reset_ct(skb);
+ 	nf_reset_trace(skb);
+ 
