@@ -80,21 +80,6 @@ diff -urN ask-pristine/cdx/cdx.h /root/lts_6.6_ls1046a/work/reference/cdx/cdx.h
 diff -urN ask-pristine/cdx/cdx_ceetm_app.c /root/lts_6.6_ls1046a/work/reference/cdx/cdx_ceetm_app.c
 --- a/cdx/cdx_ceetm_app.c	2026-04-16 11:06:00.000000000 +0000
 +++ b/cdx/cdx_ceetm_app.c	2026-04-25 07:17:01.622481037 +0000
-@@ -19,6 +19,14 @@
- #include "cdx_ceetm_gdef.h"
- #include "cdx_common.h"
- 
-+/* ASK 6.6 stubs: SDK DPAA on 6.6.135 does not provide CEETM hooks
-+ * (dpa_register_ceetm_get_egress_fq / dpa_enable_ceetm). The mainline
-+ * DPAA driver also lacks them on this LTS. Provide local no-op stubs
-+ * so cdx links; userspace QoS configuration that uses CEETM will
-+ * silently no-op until the kernel side is reintroduced. */
-+static inline int dpa_register_ceetm_get_egress_fq(void *cb1, void *cb2) { (void)cb1; (void)cb2; return 0; }
-+static inline int dpa_enable_ceetm(void *netdev) { (void)netdev; return 0; }
-+
- static struct ceetm_chnl_info qm_chnl_info[CDX_CEETM_MAX_CHANNELS];
- 
- 
 @@ -36,7 +44,7 @@
  	if (!channel) {
  		qm_ctx = (struct tQM_context_ctl *)ctx;
