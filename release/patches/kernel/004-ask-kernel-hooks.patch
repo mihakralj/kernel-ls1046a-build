@@ -1383,6 +1383,16 @@ index 161356313203..0402bdc6bae8 100644
  	}
  
  	if (!valid) {
+@@ -4117,6 +4136,9 @@ void rtmsg_ifinfo(int type, struct net_device *dev, unsigned int change,
+ 	rtmsg_ifinfo_event(type, dev, change, rtnl_get_event(0), flags,
+ 			   NULL, 0, portid, nlh);
+ }
++#if defined(CONFIG_CPE_FAST_PATH)
++EXPORT_SYMBOL_GPL(rtmsg_ifinfo);
++#endif
+ 
+ void rtmsg_ifinfo_newnet(int type, struct net_device *dev, unsigned int change,
+ 			 gfp_t flags, int *new_nsid, int new_ifindex)
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
 index 4c28954f915f..d8b17b5fe2d2 100644
 --- a/net/core/skbuff.c
