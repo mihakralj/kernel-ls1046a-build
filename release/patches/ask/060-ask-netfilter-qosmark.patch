@@ -153,7 +153,7 @@ new file mode 100644
 index 000000000000..a339458146e2
 --- /dev/null
 +++ b/net/netfilter/comcerto_fp_netfilter.c
-@@ -0,0 +1,435 @@
+@@ -0,0 +1,436 @@
 +/* Copyright (C) 2015 Freescale Semiconductor, Inc.
 + *
 + * Redistribution and use in source and binary forms, with or without
@@ -576,6 +576,7 @@ index 000000000000..a339458146e2
 +goto err0;
 +}
 +
++printk(KERN_INFO "fp_netfilter: hooks registered\n");
 +return 0;
 +
 +err0:
