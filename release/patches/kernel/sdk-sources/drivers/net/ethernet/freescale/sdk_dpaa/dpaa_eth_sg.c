@@ -1901,11 +1901,17 @@ int cpe_fp_tx(struct sk_buff *skb, struct net_device *net_dev)
 		get_ceetm_cm_egress_fq = 1; /* This becomes 0 when qosconnark(markval is 0) is not present or 
 						can't find egress fq for dscp */
 		/* markval is 0 means qosconnmark is not configured, so getting dscp from skb. */
-		/* using dscp get the egress fq. */
-		if (!markval) {
-			skb_nh = dpa_get_skb_nh(skb, &l3_proto, &l3_offset);
-			if (skb_nh)
-			{
+/* using dscp get the egress fq. */
+if (!markval) {
+#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
+skb_nh = dpa_get_skb_nh(skb, &l3_proto, &l3_offset);
+#else
+/* dpa_get_skb_nh() is gated on IPSEC_OFFLOAD; without it, fall
+ * through to the non-DSCP CEETM path below. */
+skb_nh = NULL;
+#endif
+if (skb_nh)
+{
 				/* skb_nh is non NULL means either it is pointing to ipv4 or ipv6 header only */
 				if (l3_proto ==  htons(ETH_P_IP))
 				{
