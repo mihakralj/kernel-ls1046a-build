@@ -249,7 +249,7 @@ index 202e557496fb..34092cceec20 100644
  };
  #define to_net_dev(d) container_of(d, struct net_device, dev)
  
-@@ -3108,10 +3112,27 @@ u16 dev_pick_tx_cpu_id(struct net_device *dev, struct sk_buff *skb,
+@@ -3108,10 +3112,31 @@ u16 dev_pick_tx_cpu_id(struct net_device *dev, struct sk_buff *skb,
  int __dev_queue_xmit(struct sk_buff *skb, struct net_device *sb_dev);
  int __dev_direct_xmit(struct sk_buff *skb, u16 queue_id);
  
@@ -263,10 +263,14 @@ index 202e557496fb..34092cceec20 100644
 +
 +static inline int dev_queue_xmit(struct sk_buff *skb)
 +{
-+	if (dpaa_wifi_xmit_local_ipsec_handler && skb->ipsec_offload &&
-+	    skb->dev->wifi_offload_dev)
-+		return dpaa_wifi_xmit_local_ipsec_handler(skb);
-+	return original_dev_queue_xmit(skb);
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
++if (dpaa_wifi_xmit_local_ipsec_handler && skb->ipsec_offload &&
++    skb->dev->wifi_offload_dev)
++return dpaa_wifi_xmit_local_ipsec_handler(skb);
++#else
++(void)dpaa_wifi_xmit_local_ipsec_handler;
++#endif
++return original_dev_queue_xmit(skb);
 +}
 +#else
  static inline int dev_queue_xmit(struct sk_buff *skb)
@@ -4806,7 +4810,7 @@ new file mode 100644
 index 000000000000..a339458146e2
 --- /dev/null
 +++ b/net/netfilter/comcerto_fp_netfilter.c
-@@ -0,0 +1,448 @@
+@@ -0,0 +1,454 @@
 +/* Copyright (C) 2015 Freescale Semiconductor, Inc.
 + *
 + * Redistribution and use in source and binary forms, with or without
@@ -4850,45 +4854,51 @@ index 000000000000..a339458146e2
 +#ifndef IPSEC_FLOW_CACHE
 +/* this function is used to fill the xfrm info in conntrack structure */
 +static void nf_ct_set_xfrm_in_fp(struct sk_buff *skb, struct xfrm_state *xfrm[MAX_SUPPORTED_XFRMS_PER_DIR],
-+	int num_xfrm, int xfrm_dir, int *rekey)
++int num_xfrm, int xfrm_dir, int *rekey)
 +{
-+	struct nf_conn *ct;
-+	enum ip_conntrack_info ctinfo;
-+	struct comcerto_fp_info *fp_info;
-+	int dir, xfrm_ind, ii;
++#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
++struct nf_conn *ct;
++enum ip_conntrack_info ctinfo;
++struct comcerto_fp_info *fp_info;
++int dir, xfrm_ind, ii;
 +
-+	if (num_xfrm > MAX_SUPPORTED_XFRMS_PER_DIR) {
-+		printk(KERN_ERR "%s(%d) num_xfrm %d > %d(MAX supported)\n",
-+			__FUNCTION__, __LINE__, num_xfrm, MAX_SUPPORTED_XFRMS_PER_DIR);
-+		return;
-+	}
++if (num_xfrm > MAX_SUPPORTED_XFRMS_PER_DIR) {
++printk(KERN_ERR "%s(%d) num_xfrm %d > %d(MAX supported)\n",
++__FUNCTION__, __LINE__, num_xfrm, MAX_SUPPORTED_XFRMS_PER_DIR);
++return;
++}
 +
-+	/* get ct info */
-+	ct = nf_ct_get(skb, &ctinfo);
-+	if (!ct)
-+		return;
++/* get ct info */
++ct = nf_ct_get(skb, &ctinfo);
++if (!ct)
++return;
 +
-+	dir = CTINFO2DIR(ctinfo);
-+	if (dir == IP_CT_DIR_ORIGINAL)
-+		fp_info = &ct->fp_info[IP_CT_DIR_ORIGINAL];
-+	else
-+		fp_info = &ct->fp_info[IP_CT_DIR_REPLY];
++dir = CTINFO2DIR(ctinfo);
++if (dir == IP_CT_DIR_ORIGINAL)
++fp_info = &ct->fp_info[IP_CT_DIR_ORIGINAL];
++else
++fp_info = &ct->fp_info[IP_CT_DIR_REPLY];
 +
-+	if (xfrm_dir == XFRM_POLICY_FWD)
-+		xfrm_dir = 0;
-+	/* xfrm_dir can be XFRM_POLICY_IN, XFRM_POLICY_OUT, XFRM_POLICY_FWD */
-+	/* fp_info->xfrm_id[4] has 4 instances, first 2 instances reserved for direction IN/FWD
-+	   next 2 instances for OUT direction */
-+	xfrm_ind = xfrm_dir << 1;
++if (xfrm_dir == XFRM_POLICY_FWD)
++xfrm_dir = 0;
++/* xfrm_dir can be XFRM_POLICY_IN, XFRM_POLICY_OUT, XFRM_POLICY_FWD */
++/* fp_info->xfrm_id[4] has 4 instances, first 2 instances reserved for direction IN/FWD
++   next 2 instances for OUT direction */
++xfrm_ind = xfrm_dir << 1;
 +
-+	for (ii = 0; ii < num_xfrm; ii++) {
-+		if (fp_info->xfrm_handle[xfrm_ind + ii] &&
-+		    fp_info->xfrm_handle[xfrm_ind + ii] != xfrm[ii]->handle)
-+			*rekey = 1;
++for (ii = 0; ii < num_xfrm; ii++) {
++if (fp_info->xfrm_handle[xfrm_ind + ii] &&
++    fp_info->xfrm_handle[xfrm_ind + ii] != xfrm[ii]->handle)
++*rekey = 1;
 +
-+		/* filling SA info and xfrm handle */
-+		fp_info->xfrm_handle[xfrm_ind + ii] = xfrm[ii]->handle;
-+	}
++/* filling SA info and xfrm handle */
++fp_info->xfrm_handle[xfrm_ind + ii] = xfrm[ii]->handle;
++}
++#else
++(void)skb; (void)xfrm; (void)num_xfrm; (void)xfrm_dir;
++if (rekey)
++*rekey = 0;
++#endif
 +}
 +
 +/* this function is used to get the inbound and outbound xfrm info corresponding to
