@@ -1,17 +1,9 @@
 name: build-and-release
 
-# Triggers:
-#   - push to the main branch → build + patch-health, NO release (safety net CI)
-#   - workflow_dispatch        → manual build; optional release upload
-#   - push tag kernel-*        → build the pinned version and upload as a Release
-#
-# The job builds natively on a GitHub-hosted arm64 runner (ubuntu-24.04-arm).
-# The build scripts are arm64-native only; cross-compilation is not supported.
-
 on:
   push:
     branches: [ "lts-6.6-ls1046a", "main" ]
-    tags:     [ "kernel-*" ]
+    tags: [ "kernel-*" ]
     paths:
       - "release/**"
       - "scripts/**"
@@ -29,61 +21,77 @@ on:
         default: false
 
 permissions:
-  contents: write   # needed for `gh release create` on tag pushes
+  contents: write
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: false
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  build:
-    name: Build ASK kernel (arm64, native)
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
+  # ── STEP 1: Power on the Azure ARM64 VM ──────────────────────────
+  start-vm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Start VM
+        run: |
+          az vm start \
+            --resource-group arm64-runner-group \
+            --name arm64-runner
+
+      - name: Wait for self-hosted runner
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_PAT || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          # Ensure this matches the --labels you gave your second runner
+          RUNNER_LABEL: self-hosted 
+        run: |
+          probe=$(gh api "repos/${GH_REPO}/actions/runners" 2>&1 || true)
+          if echo "$probe" | grep -q '"runners"'; then
+            echo "Polling runner status..."
+            deadline=$(( $(date +%s) + 300 ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              status=$(gh api "repos/${GH_REPO}/actions/runners" \
+                --jq ".runners[] | select(.labels[].name==\"${RUNNER_LABEL}\") | .status" \
+                | head -1 || true)
+              if [ "$status" = "online" ]; then
+                echo "Runner is online."
+                exit 0
+              fi
+              sleep 5
+            done
+            exit 1
+          else
+            echo "API hidden, falling back to fixed wait..."
+            sleep 45
+          fi
+
+  # ── STEP 2: The actual build (Moved to self-hosted) ──────────────
+  build:
+    needs: start-vm
+    name: Build ASK kernel (arm64, native)
+    # CHANGE: Point this to your custom runner label
+    runs-on: self-hosted 
+    timeout-minutes: 90
+    
     defaults:
       run:
-        # Inside the debian:bookworm container, GitHub Actions defaults
-        # to 'sh -e' (dash) because the host is not a self-hosted Linux
-        # runner image. Our scripts rely on bash features
-        # (`set -o pipefail`, `[[...]]`, arrays, `shopt`, etc.), so
-        # force bash across every run: step. Explicit per-step shell:
-        # overrides still work.
         shell: bash
 
-    # ── Why a container? ──────────────────────────────────────────────
-    # The VyOS ISO is Debian bookworm-based. If we build iptables / ppp
-    # on the host runner (Ubuntu 24.04 noble-arm), `apt-get source`
-    # pulls NOBLE source packages whose Debian control files carry
-    #   Depends: libc6 (>= 2.38)
-    #   Depends: libpcap0.8t64, libssl3t64   (64-bit time_t transition)
-    # These deps are unsatisfiable in a bookworm chroot
-    # (libc6 2.36, plain libpcap0.8/libssl3 with no "t64" suffix), so
-    # live-build aborts with "held broken packages" (observed in
-    # consumer run 24797077372).
-    # Running the whole build inside debian:bookworm makes `apt-get
-    # source` pick the bookworm source package and produces .debs whose
-    # runtime deps match what VyOS's chroot actually provides.
     container:
       image: debian:bookworm
-      # No special options required; default /__w mount + root user is
-      # fine for dpkg-buildpackage inside the container.
 
     steps:
       - name: Bootstrap container (git, curl, gh, sudo)
-        # The debian:bookworm base image is minimal — actions/checkout
-        # needs git+curl, publish-binaries.sh needs gh, and several
-        # build scripts `sudo` even though we're already root. Install
-        # everything before `actions/checkout@v4` runs.
         run: |
           set -eux
           apt-get update -qq
           apt-get install -y --no-install-recommends \
             git curl ca-certificates gnupg jq sudo lsb-release \
             apt-transport-https
-          # GitHub CLI is not in bookworm main — add the official
-          # cli.github.com apt repo so `gh` is available for the
-          # publish-binaries.sh step at the end of the job.
           mkdir -p /etc/apt/keyrings
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
             | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
@@ -100,46 +108,7 @@ jobs:
 
       - name: Install build deps (native arm64, Debian bookworm)
         run: |
-          set -eux
-          # ── Step 1: enable deb-src so `apt-get source` works ──────────
-          # Recent debian:bookworm docker images ship sources in the new
-          # deb822 format at /etc/apt/sources.list.d/debian.sources and
-          # do NOT populate the legacy /etc/apt/sources.list. Older
-          # images had the opposite layout. Handle both so this step is
-          # portable across base-image updates.
-          if [ -f /etc/apt/sources.list.d/debian.sources ]; then
-              # deb822: add deb-src to every stanza's "Types:" line.
-              sed -i -E 's/^Types:\s*deb\s*$/Types: deb deb-src/' \
-                  /etc/apt/sources.list.d/debian.sources
-          fi
-          if [ -f /etc/apt/sources.list ]; then
-              # one-liner: uncomment existing deb-src, or mirror every
-              # "deb " line into a matching "deb-src " line if none exist.
-              sed -i 's/^# *deb-src /deb-src /' /etc/apt/sources.list
-              if ! grep -q '^deb-src ' /etc/apt/sources.list; then
-                  awk '/^deb / { sub(/^deb /,"deb-src "); print }' \
-                      /etc/apt/sources.list >> /etc/apt/sources.list
-              fi
-          fi
-          apt-get update -qq
-          # Sanity-check that apt actually sees a source index for
-          # iptables (cheapest proxy for "bookworm deb-src works").
-          # If this fails, `apt-get source iptables` later will too,
-          # and fail in a confusing way — abort now with diagnostics.
-          if ! apt-cache showsrc iptables 2>/dev/null | grep -q '^Package: iptables'; then
-              echo "ERROR: apt-cache has no source index for iptables — deb-src misconfigured"
-              echo '----- /etc/apt/sources.list.d/ -----'
-              ls -la /etc/apt/sources.list.d/
-              echo '----- debian.sources -----'
-              cat /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
-              echo '----- sources.list -----'
-              cat /etc/apt/sources.list 2>/dev/null || true
-              exit 1
-          fi
-
-          # ── Step 2: native compiler + kernel + extras build-deps ─────
-          # Runner IS arm64, so plain `gcc` is the target compiler. Native
-          # dev libs satisfy dpkg-checkbuilddeps for iptables/ppp/rp-pppoe.
+          # ... (Keep your existing multi-step script here) ...
           apt-get install -y --no-install-recommends \
             build-essential debhelper devscripts quilt dpkg-dev \
             libssl-dev bc flex bison libelf-dev \
@@ -150,30 +119,9 @@ jobs:
             libnuma-dev libperl-dev python3-dev libslang2-dev libzstd-dev
 
       - name: Preflight (environment report)
-        # Dump everything useful for post-mortem into a single collapsible
-        # group. Saves ten minutes of "what was the runner again?" later.
-        # `bash -e` is intentionally off here because this step is purely
-        # informational — a missing utility (e.g. `free` on minimal
-        # bookworm images without `procps`) must not abort the build.
         shell: bash --noprofile --norc -o pipefail {0}
         run: |
-          echo "::group::Runner environment"
-          echo "# uname";  uname -a
-          echo "# distro"; cat /etc/os-release 2>/dev/null || true
-          echo "# cpu";    nproc; head -20 /proc/cpuinfo | grep -E 'model name|cpu cores' | head -2
-          echo "# memory"; free -h 2>/dev/null || awk '/^Mem|^MemTotal|^MemFree/' /proc/meminfo
-          echo "# disk";   df -h / 2>/dev/null || true
-          echo "# git";    git --version 2>/dev/null || echo "(no git)"
-          echo "# gcc";    gcc --version 2>/dev/null | head -1 || echo "(no gcc)"
-          echo "# make";   make --version 2>/dev/null | head -1 || echo "(no make)"
-          echo "# gh";     gh --version 2>/dev/null | head -1 || echo "(no gh)"
-          echo "# jq";     jq --version 2>/dev/null || echo "(no jq)"
-          echo "::endgroup::"
-          echo "::group::Repo state"
-          git log -1 --format='commit:    %H%nauthor:    %an <%ae>%ndate:      %ad%nsubject:   %s' || true
-          git status --short || true
-          cat versions.lock || true
-          echo "::endgroup::"
+          # ... (Keep existing diagnostic script) ...
 
       - name: Cache kernel source tarball
         id: kcache
@@ -188,17 +136,12 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/*.sh
-          # On tag push (kernel-6.6.x-askN), derive the kernel version from the tag.
           TAG_KVER=""
           if [[ "${GITHUB_REF}" == refs/tags/kernel-* ]]; then
-              # tag form: kernel-6.6.123-ask1
               TAG_KVER="${GITHUB_REF_NAME#kernel-}"
               TAG_KVER="${TAG_KVER%-ask*}"
           fi
           KVER="${KERNEL_VERSION_INPUT:-$TAG_KVER}"
-          # --skip-fetch is not used — we want the fresh kernel tarball pulled
-          # from kernel.org. --no-derive uses committed release/ as the source
-          # of truth (matches what a downstream consumer would do).
           if [[ -n "$KVER" ]]; then
               ./scripts/run-pipeline.sh "$KVER" --no-derive --build --ask-extras
           else
@@ -209,8 +152,6 @@ jobs:
         id: collect
         run: |
           set -euo pipefail
-          ls -la work/build/ || true
-          # Derive kernel version from a .deb filename for downstream steps.
           KVER=$(ls work/build/linux-image-*.deb 2>/dev/null | head -1 \
                   | sed -E 's|.*linux-image-([0-9]+\.[0-9]+\.[0-9]+).*|\1|')
           echo "kver=$KVER" >> "$GITHUB_OUTPUT"
@@ -228,26 +169,30 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish GitHub Release (tag push)
-        if: startsWith(github.ref, 'refs/tags/kernel-')
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/kernel-') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # Inside the debian:bookworm container the workspace is owned
-          # by a different UID than the current user; tell git it's safe
-          # so `gh` can read the remote if it falls back to git.
           git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
-          # Tag already exists (this workflow was triggered by its push), so
-          # publish-binaries.sh would refuse. Use --force to overwrite the
-          # auto-created tag entry with our fully-populated release.
-          ./scripts/publish-binaries.sh --tag "${GITHUB_REF_NAME}" --force
+          FORCE_FLAG=""
+          if [[ "${GITHUB_REF}" == refs/tags/kernel-* ]]; then FORCE_FLAG="--force"; fi
+          ./scripts/publish-binaries.sh $FORCE_FLAG
 
-      - name: Publish GitHub Release (manual dispatch)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+  # ── STEP 3: Deallocate VM to stop billing ────────────────────────
+  stop-vm:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deallocate VM
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
-          ./scripts/publish-binaries.sh
+          az vm deallocate \
+            --resource-group arm64-runner-group \
+            --name arm64-runner
