@@ -176,9 +176,18 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
-          FORCE_FLAG=""
-          if [[ "${GITHUB_REF}" == refs/tags/kernel-* ]]; then FORCE_FLAG="--force"; fi
-          ./scripts/publish-binaries.sh $FORCE_FLAG
+          ARGS=()
+          # When triggered by a tag push, ALWAYS pass that exact tag to the
+          # publish script. publish-binaries.sh's auto-increment scanner
+          # walks ask1, ask2, ask3, … and stops at the first NOT-listed
+          # number — but past releases have been deleted (gaps in ask3..ask27),
+          # so the auto-tag would silently land in a gap and overwrite a
+          # historic release instead of creating ask37 from refs/tags/ask37.
+          if [[ "${GITHUB_REF}" == refs/tags/kernel-* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            ARGS+=( --tag "$TAG" --force )
+          fi
+          ./scripts/publish-binaries.sh "${ARGS[@]}"
 
   # ── STEP 3: Deallocate VM to stop billing ────────────────────────
   stop-vm:
