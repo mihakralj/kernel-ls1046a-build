@@ -870,7 +870,20 @@ t_Handle FmPcdGetHcHandle(t_Handle h_FmPcd)
 
 bool FmPcdIsHcUsageAllowed(t_Handle h_FmPcd)
 {
-	ASSERT_COND(h_FmPcd);
+    /* Mono Gateway hardening: tolerate a NULL PCD handle.
+     *
+     * This function is invoked from DetachPCD() in the cleanup path of a
+     * failed PCD apply (e.g. MURAM exhaustion in AllocStatsObjs).  At that
+     * point p_FmPort->h_FmPcd may legitimately still be NULL because the
+     * port had no PCD attached yet.  The original SDK code asserted and
+     * then immediately dereferenced the NULL handle, killing the kernel
+     * with an arm64 paging fault.  Returning FALSE here is semantically
+     * correct: with no PCD attached, host-command (HC) usage is not
+     * allowed, and the caller already handles the FALSE branch by
+     * skipping FmPcdHcSync().
+     */
+    if (!h_FmPcd)
+        return FALSE;
 
     return FmIsHcUsageAllowed(((t_FmPcd*)h_FmPcd)->h_Hc);
 }
