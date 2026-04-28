@@ -589,7 +589,7 @@ index 000000000000..a339458146e2
 +nf_unregister_net_hooks(&init_net, fp_netfilter_ops, ARRAY_SIZE(fp_netfilter_ops));
 +}
 +
-+module_init(fp_netfilter_init);
++late_initcall(fp_netfilter_init);
 +module_exit(fp_netfilter_exit);
 \ No newline at end of file
 diff --git a/net/netfilter/xt_qosconnmark.c b/net/netfilter/xt_qosconnmark.c
