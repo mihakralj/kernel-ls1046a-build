@@ -1,0 +1,50 @@
+Subject: [PATCH] net/xfrm: add Kconfig entries for INET_IPSEC_OFFLOAD / INET6_IPSEC_OFFLOAD
+
+ASK patch 040 (`ask-xfrm-ipsec-offload.patch`) gates the entire
+`nlkey_socket` / NETLINK_KEY registration path in `net/key/af_key.c`
+(and `ipsec_flow.[ch]` + xfrm_state byh-hash + xfrm_input/xfrm_output
+offload hooks) on:
+
+    #if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
+
+Neither symbol is defined as a real Kconfig option anywhere in tree or
+in the patch set, so the gate is permanently `n` at preprocess time and
+the NETLINK_KEY socket is never registered. Userspace `cmm` then fails
+on its second `fci_open()` with EPROTONOSUPPORT and `cmm.service` does
+not come up.
+
+Add real Kconfig entries so a defconfig can opt in. The defconfig flip
+is applied separately in `release/vyos-base/10-networking.config`.
+
+Both default `n` so non-LS1046A users of this kernel are unaffected
+until they explicitly enable them.
+
+Signed-off-by: ASK fix-plan <FIX-PLAN-FCI-NETLINK-KEY.md>
+---
+diff --git a/net/xfrm/Kconfig b/net/xfrm/Kconfig
+index 3adf31a..ba99f4f 100644
+--- a/net/xfrm/Kconfig
++++ b/net/xfrm/Kconfig
+@@ -11,6 +11,22 @@ config XFRM
+ config XFRM_OFFLOAD
+ 	bool
+ 
++config INET_IPSEC_OFFLOAD
++	bool "IPv4 IPsec offload (NXP/ASK)"
++	depends on XFRM && INET
++	default n
++	help
++	  Enables NXP CAAM / ASK IPv4 IPsec offload control plane.
++	  Registers the NETLINK_KEY socket and the af_key.c nlkey_socket
++	  hooks consumed by the ASK userspace cmm/dpa_ipsec daemons.
++
++config INET6_IPSEC_OFFLOAD
++	bool "IPv6 IPsec offload (NXP/ASK)"
++	depends on XFRM && IPV6
++	default n
++	help
++	  IPv6 counterpart of INET_IPSEC_OFFLOAD.
++
+ config XFRM_ALGO
+ 	tristate
+ 	select XFRM
