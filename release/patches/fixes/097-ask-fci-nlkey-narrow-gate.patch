@@ -1,0 +1,105 @@
+Subject: [PATCH] net/xfrm,net/key: narrow gate ASK_FCI_NLKEY for NETLINK_KEY registration
+
+Replaces ask48's broken approach (turning on CONFIG_INET_IPSEC_OFFLOAD,
+which can't compile on 6.6 because patch 040 references x->curr_time
+that was never added to struct xfrm_state) with a minimum-surface gate
+that only registers the NETLINK_KEY=32 kernel socket so userspace
+cmm's fci_open(FCILIB_KEY_TYPE) can succeed.
+
+cmm.service was failing on its second fci_open() call:
+
+    socket(AF_NETLINK, SOCK_RAW, 0x20 /* NETLINK_KEY=32 */) = -1 EPROTONOSUPPORT
+    cmm[]: cmmCtInit:3258 fci_open() failed, Protocol not supported
+
+NETLINK_KEY (32) is a uapi constant from patch 040 (along with
+NETLINK_FF=30 and MAX_LINKS bumped to 64), but no kernel-side socket
+is registered for it because patch 040 gated the entire registration
+path on CONFIG_INET_IPSEC_OFFLOAD which is structurally OFF on 6.6.
+
+Approach:
+1. Add CONFIG_ASK_FCI_NLKEY (depends on NET_KEY, default n) with
+   real tab-indented Kconfig body so merge_config.sh / olddefconfig
+   pick it up.
+2. In net/key/af_key.c, append a small ASK_FCI_NLKEY-gated block that
+   declares a private kernel socket and registers it on NETLINK_KEY at
+   af_key module init. The handler is a no-op rcv (cmm only opens a
+   listening fd; it does not require kernel-originated traffic).
+3. The existing patch-040 NLKEY_SUPPORT path stays gated on
+   CONFIG_INET_IPSEC_OFFLOAD and stays OFF, so x->curr_time references
+   remain compiled out.
+
+This patch is authored against PRISTINE 6.6.135 sources so patch-health.sh
+(which checks each patch independently) can validate it. It applies
+cleanly both before and after patch 040 because it touches different
+locations in af_key.c.
+
+Replaces patch 096 (which only added Kconfig stubs for the broken
+IPSEC_OFFLOAD path); 096 is removed.
+
+Signed-off-by: ASK fix-plan <FIX-PLAN-FCI-NETLINK-KEY.md>
+---
+--- a/net/xfrm/Kconfig
++++ b/net/xfrm/Kconfig
+@@ -11,6 +11,18 @@
+ config XFRM_OFFLOAD
+ 	bool
+ 
++config ASK_FCI_NLKEY
++	bool "ASK FCI NETLINK_KEY socket (NXP LS1046A fast path)"
++	depends on NET_KEY
++	default n
++	help
++	  Registers a kernel-side NETLINK_KEY (=32) socket from af_key
++	  module init so userspace ASK userspace daemons (cmm,
++	  dpa_ipsec) can fci_open(FCILIB_KEY_TYPE).  This is the
++	  minimum surface needed for cmm.service to come up; it does
++	  NOT pull in the IPSEC offload data plane (which is gated
++	  separately on CONFIG_INET_IPSEC_OFFLOAD and stays off).
++
+ config XFRM_ALGO
+ 	tristate
+ 	select XFRM
+--- a/net/key/af_key.c
++++ b/net/key/af_key.c
+@@ -3903,6 +3903,31 @@
+ 	proto_unregister(&key_proto);
+ }
+ 
++#ifdef CONFIG_ASK_FCI_NLKEY
++#include <net/netlink.h>
++/*
++ * Minimum-surface NETLINK_KEY registration for ASK userspace (cmm).
++ * Kept independent of NLKEY_SUPPORT (which depends on the IPSEC offload
++ * data plane that is structurally incomplete on 6.6 - patch 040 missing
++ * x->curr_time field).  cmm only requires a working bind() / listen()
++ * fd on protocol 32; no kernel-originated traffic needed.
++ */
++static struct sock *ask_fci_nlkey_socket;
++static void ask_fci_nlkey_rcv(struct sk_buff *skb)
++{
++	/* drop - cmm does not require kernel-originated NLKEY responses */
++}
++static void ask_fci_nlkey_init(void)
++{
++	struct netlink_kernel_cfg cfg = { .groups = 1, .input = ask_fci_nlkey_rcv };
++	ask_fci_nlkey_socket = netlink_kernel_create(&init_net, NETLINK_KEY, &cfg);
++	if (!ask_fci_nlkey_socket)
++		pr_warn("ASK FCI: NETLINK_KEY=32 socket registration failed\n");
++	else
++		pr_info("ASK FCI: NETLINK_KEY=32 socket registered\n");
++}
++#endif
++
+ static int __init ipsec_pfkey_init(void)
+ {
+ 	int err = proto_register(&key_proto, 0);
+@@ -3917,6 +3942,9 @@
+ 	if (err != 0)
+ 		goto out_unregister_pernet;
+ 	xfrm_register_km(&pfkeyv2_mgr);
++#ifdef CONFIG_ASK_FCI_NLKEY
++	ask_fci_nlkey_init();
++#endif
+ out:
+ 	return err;
+ 
