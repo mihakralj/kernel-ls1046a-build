@@ -95,6 +95,45 @@ The SDK is required because mainline doesn't expose USDPAA / FMC / `dpa_ipsec` /
 
 Known SDK pitfall: `sdk_dpaa/mac.c:202` returns `-ENODEV` (not `-EPROBE_DEFER`) when `fm_bind()` finds FMan not yet probed. Mainline doesn't have this — it uses the component framework. Init order between `sdk_fman/` and `sdk_dpaa/` therefore matters; patch `ask/010`'s Makefile orders `sdk_fman/` first.
 
+## Reference-Aligned Defconfig Invariants
+
+The NXP/ASK 6.12 reference (`work/reference/config/kernel/defconfig`) ships `CONFIG_NET_KEY=y` (built-in), not `=m`. This is **load-bearing** for ASK: the NETLINK_KEY=32 socket that `cmm`'s `fci_open(FCILIB_KEY_TYPE)` requires is created from `af_key.c::ipsec_pfkey_init()`. With `CONFIG_NET_KEY=m`, `net/Makefile` enters `net/key/` via `obj-m += key/` (module-only descent), and any `obj-y` line inside `net/key/Makefile` is silently dropped — including our patch 097's `obj-$(CONFIG_ASK_FCI_NLKEY) += ask_fci_nlkey.o`. The kernel image then has no proto-32 registration, `cmm` fails with `EPROTONOSUPPORT`, and `cmm.service` cycle-restarts to a fake-active state.
+
+Producer-side invariants discovered by ask49 vs reference comparison:
+
+| Symbol | Reference (6.12) | This repo (must match) | Why |
+|---|---|---|---|
+| `CONFIG_NET_KEY` | `=y` | `=y` (in `release/vyos-base/10-networking.config`) | Required so `obj-y` items in `net/key/Makefile` are honored. |
+| `CONFIG_INET_IPSEC_OFFLOAD` | `=y` | **must remain `=n`** on 6.6 | Reference path needs `xfrm_state` fields (`curr_time`, `offloaded`) that don't exist on 6.6.y. Re-enabling fails to compile. |
+| `CONFIG_CPE_FAST_PATH` | `=y` | `=y` | ASK fast-path master gate; non-IPsec hooks are guarded by this. |
+| `CONFIG_ASK_FCI_NLKEY` | n/a (reference uses NLKEY_SUPPORT inside af_key.c) | `=y` | Our 6.6 narrow-gate that registers proto 32 without pulling in the broken IPsec offload data path. |
+
+ask50 (FCI fix) is therefore a **single-line defconfig change** flipping `CONFIG_NET_KEY=m` → `=y` in `release/vyos-base/10-networking.config`. Patch 097 is already correct.
+
+## Two-chain failure model (post-ask49)
+
+`ask-check` failures collapse into two **independent** chains. Knowing which one a symptom belongs to is critical for routing the fix.
+
+### Chain 1 — kernel-side (this repo's responsibility)
+- Symptoms: `cmm process running [FAILED]`, `cmm.service active [FAILED]`.
+- Trigger: `socket(AF_NETLINK, SOCK_RAW, NETLINK_KEY=32) = -EPROTONOSUPPORT`.
+- Diagnostic checklist on the running device:
+  ```bash
+  zcat /proc/config.gz | grep -E 'NET_KEY|ASK_FCI_NLKEY|INET_IPSEC_OFFLOAD'
+  cat /proc/net/netlink | awk '{print $2}' | sort -u   # must include 32
+  grep ask_fci /proc/kallsyms                          # must be non-empty
+  ls /sys/module/ask_fci_nlkey 2>/dev/null             # must exist if =y
+  dmesg | grep 'ASK FCI'
+  ```
+
+### Chain 2 — userspace-side (consumer `vyos-ls1046a-build` responsibility, NOT this repo)
+- Symptoms: `dpa_app applied PCD configuration (failed rc=65280)`, `BMan fragment buffer pool located by CDX [FAILED]`, `no ASK driver probe/init/bind failures (≥1 hit(s))`.
+- Trigger: `fm_cc.c:4377 AllocStatsObjs Memory Allocation Failed`.
+- Cause: `/etc/cdx_pcd.xml` requests ~16K stats objects in 384 KiB FMan MURAM; on-target `fmc` doesn't understand `external="yes" aging="yes"` and silently drops the DDR-offload directives, so hash tables fall back to MURAM and the allocator runs dry.
+- Fix lives in: `vyos-ls1046a-build` (rebuild `fmc`/`fmlib` from a tag that supports `external/aging`, and/or trim `cdx_pcd.xml` key counts). The kernel SDK is correctly reporting MURAM exhaustion; **no producer-side change can help.**
+
+The chains are independent: `fci.ko` does not register NETLINK_KEY (that is the in-tree `ask_fci_nlkey` `late_initcall`'s job), and `dpa_app` runs from `cdx_module_init` independent of `cmm`. Diagnose each chain separately and route fixes to the correct repo.
+
 ## Useful Commands
 
 ```bash
