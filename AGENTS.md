@@ -33,7 +33,7 @@ rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
 bash scripts/patch-health.sh --source release
 ```
 
-Must report `Pass: 13   Fail: 0` and `0 SDK conflicts (264 files to install)`. A clean `patch-health` is **not sufficient** — `git apply` may report success even when a patch's hunk count is wrong and lines get silently truncated. After patch-health, also visually inspect the affected file:
+Must report `Pass: 15   Fail: 0` and `0 SDK conflicts (266 files to install)`. A clean `patch-health` is **not sufficient** — `git apply` may report success even when a patch's hunk count is wrong and lines get silently truncated. After patch-health, also visually inspect the affected file:
 
 ```bash
 patch -p1 -d work/linux-6.6.135 < release/patches/ask/0X0-…patch
@@ -78,8 +78,10 @@ is `vyos/` → `ask/` → `fixes/`; within each bucket, sort by filename.
 |---|---|---|
 | 093 | `netlink-name-L2FLOW-cb-mutex.patch` | Lockdep mutex name (avoids dup name with NETLINK_GENERIC) |
 | 094 | `swphy-10g-fixed-link.patch` | 10G fixed-link swphy support |
+| 095 | `leds-lp5812-register.patch` | Register the lp5812 LED driver in `drivers/leds/Makefile` + `Kconfig` |
+| 097 | `ask-fci-nlkey-narrow-gate.patch` | Adds `net/key/ask_fci_nlkey.c` + `CONFIG_ASK_FCI_NLKEY` to register `NETLINK_KEY=32` without enabling the (broken-on-6.6) IPsec offload data path |
 
-SDK source files (264 of them) are dropped under `release/patches/kernel/sdk-sources/` and copied into the kernel tree by `scripts/apply-to-tree.sh`.
+SDK source files (266 of them) are dropped under `release/patches/kernel/sdk-sources/` and copied into the kernel tree by `scripts/apply-to-tree.sh`. The 266 includes the lp5812 driver source pair.
 
 ## Driver Stack (the why behind ASK)
 

@@ -1,23 +1,23 @@
-# Fix Plan — ASK PCD MURAM exhaustion + Kernel Panic Hardening
+# Fix Plan — ASK PCD MURAM Exhaustion (Chain-2, consumer-side)
 
-Captured 2026-04-28 from on-target ASK health-check on Mono Gateway running `kernel-6.6.135-vyos` ISO `2026.04.28-1914-rolling`.
+**Status as of `kernel-6.6.135-ask50` (2026-05-01):** Only **Problem A** remains open, and it routes to the consumer repo `vyos-ls1046a-build`. Problems B and C have been resolved in the producer (this repo).
 
-## ASK health-check baseline
+Captured 2026-04-28 from on-target ASK health-check on Mono Gateway. Original baseline:
 
 ```
 ASK health check complete: 54 passed, 5 failed, 1 skipped (59 active checks)
 ```
 
-The 5 failures collapse to **2 root causes**, plus **1 latent kernel bug** discovered while diagnosing them.
+The 5 failures collapsed to 2 root causes plus 1 latent kernel bug. Two of those three are now fixed.
 
 ---
 
-## Problem A — `dpa_app` PCD apply fails (rc=65280)
+## Problem A — `dpa_app` PCD apply fails (rc=65280)  [STILL OPEN — consumer-side]
 
-### Failed checks (3 of 5)
+### Failed checks
 - `[FAILED] dpa_app applied PCD configuration (failed rc=65280)`
 - `[FAILED] BMan fragment buffer pool located by CDX` (cascaded — pool is created by `dpa_app`)
-- `[FAILED] no ASK driver probe/init/bind failures (3 hit(s))` (counts the FM-PCD MAJOR errors)
+- `[FAILED] no ASK driver probe/init/bind failures (≥1 hit(s))` (counts the FM-PCD MAJOR errors)
 
 ### Evidence
 ```
@@ -35,8 +35,9 @@ cdx_create_fragment_bufpool::failed to locate eth bman pool      (cascaded)
 - 16 classifications × `max="512"` keys × `statistics="byteframe"` ≈ 16 K stats objects
 - 18 hashtables tagged `external="yes" aging="yes"` — those attributes mean *push the bucket array off-MURAM into DDR-backed USDPAA memory*
 
-The on-target `fmc` build does **not** know those attributes — running `fmc -a` prints
-`WARN: Unknown attribute 'external'` / `WARN: Unknown attribute 'aging'` for every hashtable. The unknown attributes are silently dropped, so every hash table falls back to MURAM and the allocator runs out at `AllocStatsObjs`.
+The on-target `fmc` build does **not** know those attributes — running `fmc -a` prints `WARN: Unknown attribute 'external'` / `WARN: Unknown attribute 'aging'` for every hashtable. The unknown attributes are silently dropped, so every hash table falls back to MURAM and the allocator runs out at `AllocStatsObjs`.
+
+The kernel SDK FMan driver is correctly reporting MURAM exhaustion. **No producer-side change can help.**
 
 ### Fix surface (NOT in this repo)
 
@@ -44,42 +45,28 @@ The on-target `fmc` build does **not** know those attributes — running `fmc -a
 |---|---|---|
 | `fmc` userspace | `vyos-ls1046a-build` | Rebuild `fmc` from the ASK userspace tree that has `external`/`aging` hashtable attribute support. The patch lives in NXP's ASK fmc source; it isn't in the LS1043A reference fmc tarball that the build currently packages. |
 | `cdx_pcd.xml` budget | `ask-ls1046a-6.6/cdx/` | If rebuilding `fmc` is not possible, an interim fix is to drop `statistics="byteframe"` and reduce `max="512"` → `max="32"` for the 16 hashtables. Reduces flow capacity ~16× but lets PCD load. |
-| `dpa_ipsec` skip | n/a | Already SKIPped — passes once Problem A clears |
 
-### Why we cannot fix this on the running instance
+### Why retry on the running instance is unsafe (HISTORICAL)
 
-We tried: trimmed `cdx_pcd.xml` and ran `fmc -a` manually. The PCD apply hit the same MURAM exhaustion, then the SDK FMan driver kernel-panicked during rollback (Problem C below). Mono panic-rebooted. **Do not retry runtime fmc apply** — every failed apply risks another panic until Problem C is patched.
-
----
-
-## Problem B — `cmm` daemon dies on start
-
-### Failed checks (2 of 5)
-- `[FAILED] cmm process running`
-- `[FAILED] cmm.service active`
-
-### Evidence
-```
-cmm[6410]: cmmCtInit:3258 fci_open() failed, Protocol not supported
-systemd[1]: cmm.service: Deactivated successfully.
-```
-
-`fci.ko` is loaded and `/dev/cdx_ctrl` exists. The error is from `socket(AF_NETLINK, SOCK_RAW, NETLINK_FCI)` returning `EPROTONOSUPPORT`. The FCI netlink protocol family isn't registered.
-
-### Fix surface (NOT in this repo)
-
-| Layer | Repo | Action |
-|---|---|---|
-| FCI netlink registration | `ask-ls1046a-6.6/cdx/control_socket.c` | Verify `netlink_kernel_create()` is reached on `fci.ko` init and that the protocol number matches the cmm-side `<linux/fci.h>` UAPI. Likely a port-from-5.4-to-6.6 regression in the netlink init sequence. |
+We tried trimming `cdx_pcd.xml` and running `fmc -a` manually. The PCD apply hit MURAM exhaustion, then the SDK FMan driver kernel-panicked during rollback (Problem C below). Mono panic-rebooted. **This panic path is now patched in the producer (commit `2fa9133`)** — runtime `fmc -a` retry is safe again, but PCD apply will still fail until the consumer-side fix lands.
 
 ---
 
-## Problem C — Latent NULL deref in SDK FMan PCD rollback path (NEW — found while diagnosing A)
+## Problem B — `cmm` daemon dies on start  [RESOLVED in `kernel-6.6.135-ask50`]
 
-### Trigger
-When `dpa_app` (or any `fmc -a` invocation) runs `FM_PCD_PrsLoadSw` and gets back `0x10013` (`E_INVALID_STATE`) because of MURAM exhaustion, the cleanup IOCTL path runs `FM_PORT_DeletePCD` → `DetachPCD`, which calls `FmPcdIsHcUsageAllowed(p_FmPort->h_FmPcd)`. At that point `p_FmPort->h_FmPcd` is **NULL** because the port had no PCD attached yet — the apply failed before binding.
+**See `FIX-PLAN-FCI-NETLINK-KEY.md` for the full history.**
 
-### Evidence
+TL;DR: `cmm`'s `fci_open(FCILIB_KEY_TYPE)` opens `socket(AF_NETLINK, SOCK_RAW, NETLINK_KEY=32)` and got `EPROTONOSUPPORT` because no kernel module registered proto 32. Patch `release/patches/fixes/097-ask-fci-nlkey-narrow-gate.patch` adds `net/key/ask_fci_nlkey.c` (a `late_initcall` that registers `NETLINK_KEY=32`) and was wired in. **However**, until ask50 it was silently dropped by a kbuild trap: `release/vyos-base/10-networking.config` had `CONFIG_NET_KEY=m`, which makes `net/Makefile` enter `net/key/` via `obj-m += key/` (module-only descent), and any `obj-y` line inside `net/key/Makefile` is silently dropped. Reference NXP/ASK 6.12 ships `CONFIG_NET_KEY=y`. Flipping `=m → =y` was the one-line ask50 fix.
+
+---
+
+## Problem C — Latent NULL deref in SDK FMan PCD rollback path  [RESOLVED]
+
+Resolved by commit `2fa9133` — `sdk_fman: harden FmPcdIsHcUsageAllowed against NULL handle`. That commit lives directly in `release/patches/kernel/sdk-sources/drivers/net/ethernet/freescale/sdk_fman/Peripherals/FM/Pcd/fm_pcd.c` (this is verbatim NXP SDK source; per `.clinerules/20-sdk-driver-rules.md`, fixes for SDK behaviour are allowed to be applied directly to the SDK drop when they correct an obvious upstream defect).
+
+### What was broken
+When `dpa_app` (or any `fmc -a` invocation) ran `FM_PCD_PrsLoadSw` and got back `0x10013` (`E_INVALID_STATE`) due to MURAM exhaustion, the cleanup path ran `FM_PORT_DeletePCD` → `DetachPCD`, which called `FmPcdIsHcUsageAllowed(p_FmPort->h_FmPcd)` with `h_FmPcd == NULL` (no PCD had been bound yet because the apply failed before binding).
+
 ```
 ASSERT_COND failed [CPU00, sdk_fman/Peripherals/FM/Pcd/fm_pcd.c:873 FmPcdIsHcUsageAllowed]
 Unable to handle kernel paging request at virtual address 0000000000006948
@@ -92,74 +79,29 @@ Internal error: Oops [#1] SMP
 Kernel panic - not syncing: Fatal exception
 ```
 
-The `0x6948` virtual address = NULL + offset 0x6948 of `t_FmPcd::h_Hc` (matches the `(t_FmPcd*)h_FmPcd)->h_Hc` deref inside `FmPcdIsHcUsageAllowed`).
+### What was changed
+`FmPcdIsHcUsageAllowed` now returns `FALSE` on a NULL handle instead of asserting and dereferencing:
 
-### Code path
-
-`drivers/net/ethernet/freescale/sdk_fman/Peripherals/FM/Port/fm_port.c:1874`:
-```c
-if (FmPcdIsHcUsageAllowed(p_FmPort->h_FmPcd))   // p_FmPort->h_FmPcd is NULL here
-    FmPcdHcSync(p_FmPort->h_FmPcd);
-```
-
-`drivers/net/ethernet/freescale/sdk_fman/Peripherals/FM/Pcd/fm_pcd.c:871`:
 ```c
 bool FmPcdIsHcUsageAllowed(t_Handle h_FmPcd)
 {
-    ASSERT_COND(h_FmPcd);                                 // ASSERT under SDK
-    return FmIsHcUsageAllowed(((t_FmPcd*)h_FmPcd)->h_Hc); // NULL deref
+    if (!h_FmPcd)
+        return FALSE;
+
+    return FmIsHcUsageAllowed(((t_FmPcd*)h_FmPcd)->h_Hc);
 }
 ```
 
-`ASSERT_COND` in this SDK build is **not a hard panic on its own** (it's defined to print a banner) — but the next statement immediately dereferences NULL, which on arm64 is a fatal kernel paging fault.
-
-### Fix (THIS REPO — `lts_6.6_ls1046a/release/patches/fixes/`)
-
-Make `FmPcdIsHcUsageAllowed` defensive: return `FALSE` when handed NULL, instead of trusting the caller.
-
-This is safer than fixing the call sites because the function is exported and called from several places (port detach, PCD destroy, several port-modify paths). One change covers all of them.
-
-Patch file: `release/patches/fixes/096-sdk-fman-pcd-null-handle-guard.patch`
-
-```diff
---- a/drivers/net/ethernet/freescale/sdk_fman/Peripherals/FM/Pcd/fm_pcd.c
-+++ b/drivers/net/ethernet/freescale/sdk_fman/Peripherals/FM/Pcd/fm_pcd.c
-@@ -870,7 +870,8 @@
- 
- bool FmPcdIsHcUsageAllowed(t_Handle h_FmPcd)
- {
--ASSERT_COND(h_FmPcd);
-+    if (!h_FmPcd)
-+        return FALSE;
- 
-     return FmIsHcUsageAllowed(((t_FmPcd*)h_FmPcd)->h_Hc);
- }
-```
-
-### Why this is safe and correct
-
-1. **Semantically correct**: the function returns "is HC (Host Command) usage allowed on this PCD?". If the PCD handle is NULL, no PCD is attached, so HC usage cannot be allowed → `FALSE`.
-2. **Caller in `DetachPCD` already guards on the return value** — it only calls `FmPcdHcSync` if true. `FALSE` → skip the sync, which is the correct behaviour when no PCD was attached.
-3. **No ABI change** — same prototype, same return type, only relaxes the precondition.
-4. **Matches the kernel coding style** — defensive null checks are standard in driver code; the SDK's `ASSERT_COND` here is a porting artefact from the (FreeRTOS-style) target abstraction layer where `ASSERT_COND` would halt before the deref.
-
-### Smoke-test plan
-
-After landing the patch and rebuilding the kernel:
-
-1. Boot mono with current (broken) `cdx_pcd.xml`.
-2. Confirm boot still completes with `cdx_module_init::start_dpa_app failed rc 65280 (continuing anyway)` and 5 ports `u/u`.
-3. From a shell, invoke `sudo /usr/local/bin/fmc -c /etc/cdx_cfg.xml -p /etc/cdx_pcd.xml -d /etc/fmc/config/hxs_pdl_v3.xml -s /etc/cdx_sp.xml -a` — same command that panicked the box previously.
-4. Expected: `fmc` returns non-zero, dmesg shows the same FM-PCD MURAM allocation errors, **no kernel panic**, system stays up.
+Caller (`DetachPCD`) already guards on the return value, so `FALSE` → skip `FmPcdHcSync`, which is correct when no PCD was attached. No ABI change.
 
 ---
 
-## Execution plan for this repo (`lts_6.6_ls1046a`)
+## Summary
 
-- [ ] Write `release/patches/fixes/096-sdk-fman-pcd-null-handle-guard.patch`
-- [ ] Run `bash scripts/patch-health.sh --source release` and confirm `Pass: 14   Fail: 0`
-- [ ] Apply patch into a fresh tree and visually verify `FmPcdIsHcUsageAllowed` body in `fm_pcd.c`
-- [ ] Commit + tag `kernel-6.6.135-ask15` (push tag only, per AGENTS.md)
-- [ ] After producer release builds, bump kernel pin in `vyos-ls1046a-build/versions.lock` and rebuild ISO
-- [ ] On mono, run the smoke test (panic-prone fmc invocation) — must NOT panic the box
-- [ ] (Out of scope here) Problems A and B are tracked in `vyos-ls1046a-build` and `ask-ls1046a-6.6` respectively
+| Problem | Status | Where fixed |
+|---|---|---|
+| A — PCD MURAM exhaustion / `dpa_app` rc=65280 | OPEN | `vyos-ls1046a-build` (consumer): rebuild `fmc` with `external`/`aging` support, OR trim `cdx_pcd.xml` budget |
+| B — `cmm` `fci_open` `EPROTONOSUPPORT` | RESOLVED in ask50 | This repo: patch `fixes/097` + `CONFIG_NET_KEY=y`. See `FIX-PLAN-FCI-NETLINK-KEY.md`. |
+| C — NULL-handle panic in `FmPcdIsHcUsageAllowed` | RESOLVED | This repo: SDK source hardened (commit `2fa9133`). |
+
+This document is kept as the routing record for Problem A. When the consumer-side fix lands, this file can be archived.

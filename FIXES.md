@@ -1,10 +1,18 @@
 # Kernel 6.6.135 LTS Build Fixes for NXP LS1046A (DPAA1)
 
+> **Historical document — frozen as of the pre-bucket era (commit `3d4d300`, ~Apr 2026).**
+> This file documents the original SDK 5.15 → 6.6 API-shim work that landed before the
+> 3-bucket patch layout (`vyos/`, `ask/`, `fixes/`) was introduced. All shims listed
+> here are now embedded in the verbatim SDK source drops under
+> `release/patches/kernel/sdk-sources/`. Subsequent fixes live in
+> `release/patches/fixes/` (4 patches as of `kernel-6.6.135-ask50`: 093, 094, 095, 097).
+> See `AGENTS.md` for the current authoritative inventory.
+
 This document summarizes the patches applied to get the NXP LSDK DPAA1 SDK
 sources (imported from `linux-5.15-rt`) to compile cleanly against the
 upstream 6.6.135 LTS kernel on `aarch64` (target: LS1046A / Mono).
 
-**Final green CI run:** [24769249669](https://github.com/mihakralj/lts_6.6_ls1046a/actions/runs/24769249669)
+**Final green CI run for this phase:** [24769249669](https://github.com/mihakralj/lts_6.6_ls1046a/actions/runs/24769249669)
 @ commit `3d4d300` on branch `lts-6.6-ls1046a` — runner `ubuntu-24.04-arm`.
 
 The build enforces `-Werror=implicit-function-declaration` and
