@@ -20,7 +20,7 @@ Every commit subject must begin with one of these scope prefixes, matching the a
 1. **One logical change per commit.** Don't combine a patch edit with a manifest bump or a script change.
 2. **Patch reorderings are their own commits** with `ask:` / `fixes:` prefix and a body explaining why the order changed.
 3. **Defconfig diffs** must be surfaced in the commit body — paste the `scripts/diff-vyos-config.sh` output.
-4. **Tag annotations** for `kernel-6.6.135-askN` must list the deltas vs the prior askN (commits, patch additions/edits, defconfig changes, manifest bumps).
+4. **Tag annotations** for `kernel-6.6.137-askN` must list the deltas vs the prior askN (commits, patch additions/edits, defconfig changes, manifest bumps).
 5. **No `WIP`, `fixup!`, or `squash!` commits on `lts-6.6-ls1046a`.** Squash locally before pushing.
 
 ## Example

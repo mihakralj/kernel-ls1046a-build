@@ -22,9 +22,9 @@
 #   pre-tool-use hook on the execute_command tool.
 #
 # Standalone smoke test:
-#   echo 'git push origin lts-6.6-ls1046a kernel-6.6.135-ask15' \
+#   echo 'git push origin lts-6.6-ls1046a kernel-6.6.137-ask15' \
 #     | .clinehooks/block-dual-ref-push.sh   # → exit 1, message
-#   echo 'git push origin kernel-6.6.135-ask15' \
+#   echo 'git push origin kernel-6.6.137-ask15' \
 #     | .clinehooks/block-dual-ref-push.sh   # → exit 0
 set -euo pipefail
 
@@ -84,7 +84,7 @@ See .clinerules/00-tag-discipline.md.
 
 Allowed alternatives:
   # Tag-only release push:
-  git push origin kernel-6.6.135-askN
+  git push origin kernel-6.6.137-askN
 
   # Branch sanity-check (before cutting any tag):
   git push origin lts-6.6-ls1046a
@@ -92,7 +92,7 @@ Allowed alternatives:
 If you really intend both pushes, do them as TWO separate invocations
 in the correct order:
   1) git push origin lts-6.6-ls1046a       # land branch first
-  2) git push origin kernel-6.6.135-askN   # then cut/push tag
+  2) git push origin kernel-6.6.137-askN   # then cut/push tag
 EOF
     exit 1
 fi

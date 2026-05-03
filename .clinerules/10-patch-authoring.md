@@ -20,7 +20,7 @@ After every patch edit, in order:
 
 1. Re-extract a pristine kernel tree:
    ```bash
-   rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+   rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
    ```
 2. Run patch-health:
    ```bash
@@ -29,8 +29,8 @@ After every patch edit, in order:
    Required result: `Pass: 13   Fail: 0`, `0 SDK conflicts`, `264 files to install`.
 3. Visually verify the affected hunk(s):
    ```bash
-   patch -p1 -d work/linux-6.6.135 < release/patches/<bucket>/<patch>
-   grep -n '<expected-content>' work/linux-6.6.135/<patched-file>
+   patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/<patch>
+   grep -n '<expected-content>' work/linux-6.6.137/<patched-file>
    ```
 4. Re-validate hunk headers: for each `@@ -a,b +c,d @@`, confirm
    - `b` == count of context + `-` lines in the hunk
@@ -49,7 +49,7 @@ When you change a hunk's content, recompute BOTH counts. Off-by-one in `NewCount
 
 ## Patch authoring procedure
 
-1. Re-extract pristine tree from `work/linux-6.6.135.tar.xz`.
+1. Re-extract pristine tree from `work/linux-6.6.137.tar.xz`.
 2. Apply all patches up to (but not including) your insertion point with `patch -p1`.
 3. Edit target files in the working tree.
 4. `git diff --no-prefix` (or `diff -uN`), pipe through `scripts/normalize-patch.awk`.

@@ -20,7 +20,7 @@ These fragments are merged in lexical order by the build pipeline. **All** persi
 
 ## Hard rules
 
-1. **Never edit a generated `.config`** in `work/linux-6.6.135/.config` and expect the change to persist — it will be overwritten on the next build.
+1. **Never edit a generated `.config`** in `work/linux-6.6.137/.config` and expect the change to persist — it will be overwritten on the next build.
 2. **Never carry config changes inside a `*.patch`** under `release/patches/`. Symbol toggles belong in fragments.
 3. **Required `=y` symbols** (enforced by `release/ask.config`):
    - `CONFIG_FSL_SDK_FMAN=y`

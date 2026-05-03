@@ -70,11 +70,11 @@ symptoms.
 For Chain-1 only (Chain-2 needs real DPAA hardware):
 
 ```bash
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/apply-to-tree.sh
 # inspect the merged config
-( cd work/linux-6.6.135 && make ARCH=arm64 olddefconfig )
-grep -E 'NET_KEY|ASK_FCI_NLKEY' work/linux-6.6.135/.config
+( cd work/linux-6.6.137 && make ARCH=arm64 olddefconfig )
+grep -E 'NET_KEY|ASK_FCI_NLKEY' work/linux-6.6.137/.config
 ```
 
 If the `.config` lines do not match the expected values, your defconfig
@@ -108,5 +108,5 @@ After resolving a Chain-1 issue:
   CI and won't change anything.
 - Asking the user to gather Chain-2 evidence on the device when the symptom
   is clearly Chain-1 (or vice versa).
-- Editing `.config` directly in `work/linux-6.6.135/` — it gets overwritten
+- Editing `.config` directly in `work/linux-6.6.137/` — it gets overwritten
   by `apply-to-tree.sh` / `olddefconfig`.

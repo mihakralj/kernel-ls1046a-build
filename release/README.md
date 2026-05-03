@@ -1,6 +1,6 @@
-# `release/` — committed source-of-truth for the ASK 6.6.135 kernel
+# `release/` — committed source-of-truth for the ASK 6.6.137 kernel
 
-This directory is what a builder consumes. It contains every patch, every SDK source drop, and every defconfig fragment needed to turn a pristine `linux-6.6.135` tarball into a bootable ASK kernel + `.deb` files. No network, no derivation step required — `git clone` and `scripts/run-pipeline.sh --skip-fetch --no-derive --build` is enough.
+This directory is what a builder consumes. It contains every patch, every SDK source drop, and every defconfig fragment needed to turn a pristine `linux-6.6.137` tarball into a bootable ASK kernel + `.deb` files. No network, no derivation step required — `git clone` and `scripts/run-pipeline.sh --skip-fetch --no-derive --build` is enough.
 
 ## Layout
 
@@ -15,7 +15,7 @@ release/
 └── patches/
     ├── vyos/                  # 3 patches — VyOS deltas, applied first
     ├── ask/                   # 8 patches — ASK fast-path hooks (010..080)
-    ├── fixes/                 # 4 patches — 6.6.y-specific repairs (090+)
+    ├── fixes/                 # 5 patches — 6.6.y-specific repairs (090+)
     └── kernel/sdk-sources/    # 266 verbatim NXP SDK driver source files
         ├── arch/arm64/boot/dts/freescale/   # qoriq-bman/qman-portals-sdk.dtsi
         ├── drivers/leds/lp5812/             # leds-lp5812 driver
@@ -36,7 +36,7 @@ For the full patch inventory and purposes, see the [main README](../README.md#pa
 `scripts/patch-health.sh --source release` must report exactly:
 
 ```text
-Pass: 15   Fail: 0
+Pass: 16   Fail: 0
 0 SDK conflicts (266 files to install)
 ```
 
@@ -60,4 +60,4 @@ For consumer integration (`vyos-ls1046a-build`), pin a release tag and download 
 - **`ask.config`** — LS1046A delta only. `merge_config.sh` runs it last; what's set here wins.
 - **`patches/<bucket>/`** — author per `.clinerules/10-patch-authoring.md`: pipe `git diff --no-prefix` through `scripts/normalize-patch.awk` and re-validate with `patch-health.sh`.
 - **`patches/kernel/sdk-sources/`** — verbatim NXP SDK drops. Editing them to "fix SDK behavior" is forbidden; fix via an `ask/` or `fixes/` patch that modifies the file after copy.
-- **`manifest.json`** — provenance only; not bumped per release iteration. The git tag (`kernel-6.6.135-askN`) is the authoritative version marker.
+- **`manifest.json`** — provenance only; not bumped per release iteration. The git tag (`kernel-6.6.137-askN`) is the authoritative version marker.

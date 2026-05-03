@@ -70,8 +70,8 @@ REPO_SLUG="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || 
 KVER=""
 for d in "${DEBS[@]}"; do
     n="$(basename "$d")"
-    # e.g. linux-image-6.6.135-ask_6.6.135-1_arm64.deb
-    #      linux-headers-6.6.135-ask_6.6.135-1_arm64.deb
+    # e.g. linux-image-6.6.137-ask_6.6.137-1_arm64.deb
+    #      linux-headers-6.6.137-ask_6.6.137-1_arm64.deb
     if [[ "$n" =~ ^linux-(image|headers)-([0-9]+\.[0-9]+\.[0-9]+) ]]; then
         KVER="${BASH_REMATCH[2]}"
         break

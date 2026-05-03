@@ -1,6 +1,6 @@
 # lts_6.6_ls1046a — Agent Rules
 
-Producer repo for the ASK kernel (`kernel-6.6.135-askN`). Builds Linux 6.6.135 + VyOS patches + NXP SDK DPAA/FMan/QBMan drivers and publishes a GitHub Release for the consumer `vyos-ls1046a-build` to pin against.
+Producer repo for the ASK kernel (`kernel-6.6.137-askN`). Builds Linux 6.6.137 + VyOS patches + NXP SDK DPAA/FMan/QBMan drivers and publishes a GitHub Release for the consumer `vyos-ls1046a-build` to pin against.
 
 ## Critical Build Workflow Rules
 
@@ -11,8 +11,8 @@ For each new ask kernel iteration:
 ```bash
 # Edit patches/code, run patch-health.sh --source release locally first
 git commit -am '...'
-git tag kernel-6.6.135-askN
-git push origin kernel-6.6.135-askN      # ← TAG ONLY
+git tag kernel-6.6.137-askN
+git push origin kernel-6.6.137-askN      # ← TAG ONLY
 ```
 
 **Do NOT** also push `lts-6.6-ls1046a` in the same `git push` command. The workflow triggers on BOTH ref types:
@@ -22,22 +22,22 @@ git push origin kernel-6.6.135-askN      # ← TAG ONLY
 | `push: branches: [lts-6.6-ls1046a, main]` | Safety-net CI build, **no release** |
 | `push: tags: [kernel-*]` | Build + **publishes Release** |
 
-`git push origin lts-6.6-ls1046a kernel-6.6.135-askN` fires the workflow twice — once for the branch, once for the tag — wasting ~22 min of GitHub Actions minutes on a discarded redundant build. The `concurrency` group does not deduplicate them because branch and tag refs are distinct.
+`git push origin lts-6.6-ls1046a kernel-6.6.137-askN` fires the workflow twice — once for the branch, once for the tag — wasting ~22 min of GitHub Actions minutes on a discarded redundant build. The `concurrency` group does not deduplicate them because branch and tag refs are distinct.
 
 Push the branch ref only when you have **non-release** commits worth a CI sanity check (tooling, AGENTS.md, README, scripts) — and in that case do it BEFORE you cut the tag, in a separate push.
 
 ### Always run patch-health locally before tagging
 
 ```bash
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
 ```
 
 Must report `Pass: 16   Fail: 0` and `0 SDK conflicts (266 files to install)`. A clean `patch-health` is **not sufficient** — `git apply` may report success even when a patch's hunk count is wrong and lines get silently truncated. After patch-health, also visually inspect the affected file:
 
 ```bash
-patch -p1 -d work/linux-6.6.135 < release/patches/ask/0X0-…patch
-grep -n <expected-content> work/linux-6.6.135/<patched-file>
+patch -p1 -d work/linux-6.6.137 < release/patches/ask/0X0-…patch
+grep -n <expected-content> work/linux-6.6.137/<patched-file>
 ```
 
 This caught the ask13 → ask14 hunk-count bug where `@@ -25,3 +25,6 @@` truncated 12 added lines to 6, silently dropping `obj-$(CONFIG_FSL_SDK_FMAN)` and `obj-$(CONFIG_FSL_SDK_DPAA_ETH)` from the Makefile, producing a kernel with neither sdk_fman nor sdk_dpaa built.
@@ -136,7 +136,7 @@ ask50 (FCI fix) is therefore a **single-line defconfig change** flipping `CONFIG
 - Sub-trigger A (MURAM exhaustion): `fm_cc.c:4377 AllocStatsObjs Memory Allocation Failed`.
   - Cause: `/etc/cdx_pcd.xml` requests ~16K stats objects in 384 KiB FMan MURAM; on-target `fmc` doesn't understand `external="yes" aging="yes"` and silently drops the DDR-offload directives, so hash tables fall back to MURAM and the allocator runs dry.
   - Fix lives in: `vyos-ls1046a-build` (rebuild `fmc`/`fmlib` from a tag that supports `external/aging`, and/or trim `cdx_pcd.xml` key counts).
-- Sub-trigger B (NULL-deref in `copy_td_to_ccbase`, ARM64 oops at `+0x68`): the kernel-side path of an EHASH external-hash request was wired wrong in the vendored SDK — `FM_PCD_HashTableSet()` did not dispatch to `ExternalHashTableSet()` when `p_Param->externalHash` was set, so the returned `t_FmPcdCcNode *` was later reinterpret-cast as `en_exthash_info *` and the first field load NULL-deref'd. **Fixed at producer level by `fixes/098-fm-cc-ehash-redirect.patch` (kernel-6.6.135-ask53).** Once a consumer pins ask53 or later, only sub-trigger A's userspace work remains.
+- Sub-trigger B (NULL-deref in `copy_td_to_ccbase`, ARM64 oops at `+0x68`): the kernel-side path of an EHASH external-hash request was wired wrong in the vendored SDK — `FM_PCD_HashTableSet()` did not dispatch to `ExternalHashTableSet()` when `p_Param->externalHash` was set, so the returned `t_FmPcdCcNode *` was later reinterpret-cast as `en_exthash_info *` and the first field load NULL-deref'd. **Fixed at producer level by `fixes/098-fm-cc-ehash-redirect.patch` (kernel-6.6.137-ask53).** Once a consumer pins ask53 or later, only sub-trigger A's userspace work remains.
 
 The chains are independent: `fci.ko` does not register NETLINK_KEY (that is the in-tree `ask_fci_nlkey` `late_initcall`'s job), and `dpa_app` runs from `cdx_module_init` independent of `cmm`. Diagnose each chain separately and route fixes to the correct repo.
 
@@ -152,4 +152,4 @@ gh run list --workflow=build-and-release.yml --limit 5
 gh run view <id> --log-failed
 
 # Inspect a published release
-gh release view kernel-6.6.135-askN
+gh release view kernel-6.6.137-askN

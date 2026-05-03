@@ -284,7 +284,7 @@ begin_group "compile OOT modules (cdx → fci → auto_bridge)"
 build_mod cdx
 build_mod fci
 # auto_bridge requires kernel-side LSDK-specific patches (brevent_fdb_update,
-# sk_buff::abm_ff, register_brevent_notifier) not present in mainline 6.6.135.
+# sk_buff::abm_ff, register_brevent_notifier) not present in mainline 6.6.137.
 # Build it as best-effort: log a warning and continue if it fails so the
 # package still ships cdx+fci.
 AB_OK=1

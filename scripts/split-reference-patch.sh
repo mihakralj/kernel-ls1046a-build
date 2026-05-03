@@ -263,7 +263,7 @@ rm patches/kernel/003-ask-kernel-hooks.patch
 cp $OUT/patches/kernel/*.patch patches/kernel/
 
 # 3. Sanity: patch -p1 --dry-run each in order against a fresh 6.6 tree
-cd ../some-fresh-linux-6.6.135
+cd ../some-fresh-linux-6.6.137
 for p in /tmp/ref-split/patches/kernel/0*.patch; do
     patch -p1 --dry-run < "\$p" || { echo "FAIL: \$p"; break; }
 done

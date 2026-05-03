@@ -4,7 +4,7 @@ Authoring a new kernel patch for the `lts_6.6_ls1046a` producer repo, end-to-end
 
 ## When to use
 
-A change to the Linux 6.6.135 source tree must be persisted as a patch. Use this skill whenever you are creating or substantively modifying a file in `release/patches/{vyos,ask,fixes}/`.
+A change to the Linux 6.6.137 source tree must be persisted as a patch. Use this skill whenever you are creating or substantively modifying a file in `release/patches/{vyos,ask,fixes}/`.
 
 Do NOT use this skill for:
 - Defconfig changes (those go in `release/vyos-base/*.config` or `release/ask.config` — see `.clinerules/30-kconfig-defconfig.md`).
@@ -37,24 +37,24 @@ Never renumber existing patches. Never re-use a prefix.
 ```bash
 # 0. Sanity: clean tree, fresh kernel
 git status --porcelain   # must be empty (or only your new patch staged)
-rm -rf work/linux-6.6.135
-tar -xf work/linux-6.6.135.tar.xz -C work/
+rm -rf work/linux-6.6.137
+tar -xf work/linux-6.6.137.tar.xz -C work/
 
 # 1. Apply EVERY existing patch in canonical order, in-tree
-( cd work/linux-6.6.135 && git init -q && git add -A && git commit -qm pristine )
+( cd work/linux-6.6.137 && git init -q && git add -A && git commit -qm pristine )
 for p in release/patches/vyos/*.patch \
          release/patches/ask/*.patch \
          release/patches/fixes/*.patch ; do
-    patch -p1 -d work/linux-6.6.135 < "$p" || { echo "BAILING at $p"; exit 1; }
+    patch -p1 -d work/linux-6.6.137 < "$p" || { echo "BAILING at $p"; exit 1; }
 done
 # (SDK source drops are NOT applied here; they're a separate copy step
 #  owned by scripts/apply-to-tree.sh. See .clinerules/20.)
 
-# 2. Edit target files in work/linux-6.6.135/
-$EDITOR work/linux-6.6.135/<target-file>
+# 2. Edit target files in work/linux-6.6.137/
+$EDITOR work/linux-6.6.137/<target-file>
 
 # 3. Generate the diff and normalize it
-( cd work/linux-6.6.135 && git diff --no-prefix -- <target-file...> ) \
+( cd work/linux-6.6.137 && git diff --no-prefix -- <target-file...> ) \
   | awk -f scripts/normalize-patch.awk \
   > release/patches/<bucket>/<NNN>-<short-slug>.patch
 
@@ -64,7 +64,7 @@ $EDITOR work/linux-6.6.135/<target-file>
 $EDITOR release/patches/<bucket>/<NNN>-<short-slug>.patch
 
 # 5. Verify (mandatory loop)
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
 # Required output:
 #   Pass: 13   Fail: 0
@@ -72,8 +72,8 @@ bash scripts/patch-health.sh --source release
 #   264 files to install
 
 # 6. Visual hunk verification — defeat silent truncation (ask13 → ask14)
-patch -p1 -d work/linux-6.6.135 < release/patches/<bucket>/<NNN>-<short-slug>.patch
-grep -n '<expected-content-after-patch>' work/linux-6.6.135/<target-file>
+patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/<NNN>-<short-slug>.patch
+grep -n '<expected-content-after-patch>' work/linux-6.6.137/<target-file>
 
 # 7. Run hunk validator (post-edit hook also runs this automatically)
 .clinehooks/patch-hunk-validator.sh release/patches/<bucket>/<NNN>-<short-slug>.patch
@@ -102,6 +102,6 @@ A successfully authored patch satisfies ALL of:
 1. Lives under `release/patches/<bucket>/<NNN>-<slug>.patch` with monotonically next prefix.
 2. `scripts/patch-health.sh --source release` reports `Pass: 13  Fail: 0`, `0 SDK conflicts`, `264 files to install` (or the new agreed-upon thresholds, called out explicitly in the commit body).
 3. `.clinehooks/patch-hunk-validator.sh` reports zero issues for the new file.
-4. Visual `grep` confirms post-patch content is present in `work/linux-6.6.135/<target-file>`.
+4. Visual `grep` confirms post-patch content is present in `work/linux-6.6.137/<target-file>`.
 5. Commit message uses the correct prefix (`ask:|vyos:|fixes:|sdk:|...`) and contains one logical change.
 6. NO branch push has occurred for a `kernel-*` tag iteration (see `.clinerules/00`).

@@ -12,17 +12,17 @@ A native ARM64 build runs ~22 min. The `concurrency:` group does **not** dedupe 
 ## Hard rules
 
 1. **NEVER push a branch ref and a `kernel-*` tag in the same `git push`.**
-   - Forbidden: `git push origin lts-6.6-ls1046a kernel-6.6.135-askN`
+   - Forbidden: `git push origin lts-6.6-ls1046a kernel-6.6.137-askN`
    - Forbidden: `git push --follow-tags` when HEAD already moved on the branch and a release tag exists.
 2. **Release iterations push the TAG ONLY.**
    ```bash
    git commit -am '...'
-   git tag kernel-6.6.135-askN
-   git push origin kernel-6.6.135-askN     # tag only
+   git tag kernel-6.6.137-askN
+   git push origin kernel-6.6.137-askN     # tag only
    ```
 3. **Branch pushes are reserved for non-release commits** (tooling, AGENTS.md, README, scripts). If you need a CI sanity check on those, push the branch in a SEPARATE push, BEFORE cutting the tag.
 4. **Never re-use an `askN` tag.** If a release fails, bump to `askN+1`.
-5. **Tag name format is fixed**: `kernel-6.6.135-ask<N>` where `<N>` is a positive integer with no leading zeros.
+5. **Tag name format is fixed**: `kernel-6.6.137-ask<N>` where `<N>` is a positive integer with no leading zeros.
 
 ## Pre-tag gate (must pass before `git tag`)
 

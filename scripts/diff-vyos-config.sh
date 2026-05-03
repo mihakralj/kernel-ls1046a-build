@@ -26,7 +26,7 @@
 #
 # Usage:
 #   ./scripts/diff-vyos-config.sh                      # uses work/.kernel-version
-#   ./scripts/diff-vyos-config.sh 6.6.135              # fetch/pin kernel first
+#   ./scripts/diff-vyos-config.sh 6.6.137              # fetch/pin kernel first
 #
 # Exit codes:
 #   0  report generated (zero or non-zero deltas; the report tells you)

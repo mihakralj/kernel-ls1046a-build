@@ -38,7 +38,7 @@ JOBS="$(nproc_any)"
 # Depends: linux-image-<KVER>-vyos already ship throughout the VyOS
 # package ecosystem (jool, nat-rtsp, openvpn-dco, vyos-ipt-netflow, …).
 # ASK identity is preserved in the Debian package *version* (e.g.
-# 6.6.135-ask5), the Git tag (kernel-6.6.135-askN), and release/manifest.json.
+# 6.6.137-ask5), the Git tag (kernel-6.6.137-askN), and release/manifest.json.
 LOCALVERSION="${LOCALVERSION:--vyos}"
 KDEB_PKGVERSION="${KDEB_PKGVERSION:-}"
 

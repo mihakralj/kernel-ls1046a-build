@@ -4,10 +4,10 @@ This VS Code workspace contains **two sibling repositories** that together imple
 
 | Path | Role | Branch | Publishes |
 |---|---|---|---|
-| `/root/lts_6.6_ls1046a` (this repo) | **Producer** — Linux 6.6.135 + VyOS + NXP SDK DPAA/FMan/QBMan kernel | `lts-6.6-ls1046a` | `kernel-6.6.135-askN` GitHub Releases (kernel tarball, headers, modules) |
+| `/root/lts_6.6_ls1046a` (this repo) | **Producer** — Linux 6.6.137 + VyOS + NXP SDK DPAA/FMan/QBMan kernel | `lts-6.6-ls1046a` | `kernel-6.6.137-askN` GitHub Releases (kernel tarball, headers, modules) |
 | `/root/vyos-ls1046a-build` | **Consumer** — VyOS ARM64 ISO/image builder, ASK userspace, FMan PCD config, DPDK/VPP integration | `main` | VyOS ISO + eMMC image |
 
-The consumer pins a specific producer release via `vyos-ls1046a-build/data/ask-kernel.pin`. CI in the consumer downloads the kernel artifacts from the pinned `kernel-6.6.135-askN` tag.
+The consumer pins a specific producer release via `vyos-ls1046a-build/data/ask-kernel.pin`. CI in the consumer downloads the kernel artifacts from the pinned `kernel-6.6.137-askN` tag.
 
 ## When you are working in `lts_6.6_ls1046a` (this repo)
 
@@ -47,7 +47,7 @@ Symptoms:
 - Anything originating in the kernel before userspace (FMan/DPAA driver init, QBMan portal setup, NETLINK protocol registration, kernel module signing rejection)
 - Build/link errors against 6.6.y kernel APIs
 
-Routing: edit `release/patches/{ask,fixes}/`, `release/vyos-base/*.config`, or `release/ask.config`; cut a new `kernel-6.6.135-askN` tag.
+Routing: edit `release/patches/{ask,fixes}/`, `release/vyos-base/*.config`, or `release/ask.config`; cut a new `kernel-6.6.137-askN` tag.
 
 ### Chain 2 — userspace-side → fix in `/root/vyos-ls1046a-build` (sibling repo, NOT here)
 
@@ -88,12 +88,12 @@ When you push, follow each repo's own discipline:
 
 ## The pin file
 
-`/root/vyos-ls1046a-build/data/ask-kernel.pin` is the contract surface between the two repos. It records the producer tag (`kernel-6.6.135-askN`) the consumer image is built against. When this repo cuts a new `askN` and the consumer needs to consume it, the consumer-side commit bumps `data/ask-kernel.pin` — that is a `vyos-ls1046a-build` commit, not a commit in this repo.
+`/root/vyos-ls1046a-build/data/ask-kernel.pin` is the contract surface between the two repos. It records the producer tag (`kernel-6.6.137-askN`) the consumer image is built against. When this repo cuts a new `askN` and the consumer needs to consume it, the consumer-side commit bumps `data/ask-kernel.pin` — that is a `vyos-ls1046a-build` commit, not a commit in this repo.
 
 ## Forbidden cross-repo anti-patterns
 
 1. Mixing producer and consumer file changes in a single commit.
-2. Re-cutting a `kernel-6.6.135-askN` tag in `lts_6.6_ls1046a` to "fix" a Chain-2 symptom that the consumer should handle (wastes ~22 min ARM64 CI minutes per occurrence — see `00-tag-discipline.md`).
+2. Re-cutting a `kernel-6.6.137-askN` tag in `lts_6.6_ls1046a` to "fix" a Chain-2 symptom that the consumer should handle (wastes ~22 min ARM64 CI minutes per occurrence — see `00-tag-discipline.md`).
 3. Mirroring or copy-pasting the consumer's `AGENTS.md` into this repo's `AGENTS.md` — they have intentionally different scopes.
 4. Adding a `data/ask-kernel.pin` file to `lts_6.6_ls1046a` (it lives only in the consumer).
 5. Bumping `data/ask-kernel.pin` to a producer tag that has not actually been published as a GitHub Release.

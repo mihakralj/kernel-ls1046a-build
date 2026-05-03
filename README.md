@@ -1,12 +1,12 @@
 # lts_6.6_ls1046a
 
-> Producer of the **ASK kernel** for NXP LS1046A boards: Linux 6.6.135 LTS + VyOS deltas + NXP SDK DPAA / FMan / QBMan drivers + ASK fast-path hooks. Publishes per-tag GitHub Releases that the consumer [`vyos-ls1046a-build`](https://github.com/mihakralj/vyos-ls1046a-build) pins against.
+> Producer of the **ASK kernel** for NXP LS1046A boards: Linux 6.6.137 LTS + VyOS deltas + NXP SDK DPAA / FMan / QBMan drivers + ASK fast-path hooks. Publishes per-tag GitHub Releases that the consumer [`vyos-ls1046a-build`](https://github.com/mihakralj/vyos-ls1046a-build) pins against.
 
 ASK ([Application Solutions Kit](https://github.com/we-are-mono/ASK)) is NXP/Mono's fast-path networking stack: SDK FMan/DPAA/QBMan drivers, netfilter offload hooks, IPsec crypto-engine plumbing, conntrack/QoS extensions. It targets whichever kernel Mono is building against — currently **6.12**. VyOS 1.5/1.6 (and everything else that pins a 6.6 LTS kernel) is five years behind that.
 
-This repo is the bridge: a hand-curated, bucketed patch set that ports ASK forward to **kernel.org 6.6.135 LTS**, plus the verbatim SDK driver source drops the patches need, plus a CI workflow that builds it natively on `ubuntu-24.04-arm` (~22 min) and ships `.deb` files as a tagged GitHub Release.
+This repo is the bridge: a hand-curated, bucketed patch set that ports ASK forward to **kernel.org 6.6.137 LTS**, plus the verbatim SDK driver source drops the patches need, plus a CI workflow that builds it natively on `ubuntu-24.04-arm` (~22 min) and ships `.deb` files as a tagged GitHub Release.
 
-The current released kernel is **`kernel-6.6.135-ask50`**.
+The current released kernel is **`kernel-6.6.137-ask1`** (kernel base bumped from 6.6.135 to 6.6.137 to match VyOS upstream's `linux-image-6.6.137-vyos` package name; the askN counter resets on each kernel-base change).
 
 ---
 
@@ -18,7 +18,7 @@ lts_6.6_ls1046a/
 │   ├── patches/
 │   │   ├── vyos/    (3 patches)          # VyOS deltas, applied first
 │   │   ├── ask/     (8 patches)          # ASK fast-path hooks
-│   │   ├── fixes/   (4 patches)          # 6.6.y-specific repairs
+│   │   ├── fixes/   (5 patches)          # 6.6.y-specific repairs
 │   │   └── kernel/sdk-sources/  (266 files)  # verbatim NXP SDK drivers
 │   ├── vyos-base/                        # VyOS defconfig fragments
 │   │   ├── arm64/vyos_defconfig
@@ -55,6 +55,7 @@ The patch set applies in fixed order: `vyos/` → `ask/` → `fixes/`. Within ea
 | `fixes/` | 094 | `swphy-10g-fixed-link.patch` | 10G fixed-link swphy support |
 | `fixes/` | 095 | `leds-lp5812-register.patch` | Register lp5812 LED driver in `drivers/leds/Makefile`+`Kconfig` |
 | `fixes/` | 097 | `ask-fci-nlkey-narrow-gate.patch` | `net/key/ask_fci_nlkey.c` + `CONFIG_ASK_FCI_NLKEY` to register `NETLINK_KEY=32` without enabling the (broken-on-6.6) IPsec offload data path |
+| `fixes/` | 098 | `fm-cc-ehash-redirect.patch` | Dispatch `FM_PCD_HashTableSet()` external-hash requests to `ExternalHashTableSet()` so the returned handle type matches what `copy_td_to_ccbase()` and friends cast it to (fixes `cdx_pcd.xml` `external="yes"` NULL-deref oops at `FM_PCD_CcRootBuild` time) |
 
 ---
 
@@ -63,7 +64,7 @@ The patch set applies in fixed order: `vyos/` → `ask/` → `fixes/`. Within ea
 `scripts/patch-health.sh --source release` must report exactly:
 
 ```text
-Pass: 15   Fail: 0
+Pass: 16   Fail: 0
 0 SDK conflicts (266 files to install)
 ```
 
@@ -88,7 +89,7 @@ ASK on 6.6 deliberately does **not** enable `INET_IPSEC_OFFLOAD`; the IPsec offl
 
 | Script | Purpose |
 |---|---|
-| `scripts/patch-health.sh --source release` | Validate the patch set against pristine `linux-6.6.135`. Runs in seconds. |
+| `scripts/patch-health.sh --source release` | Validate the patch set against pristine `linux-6.6.137`. Runs in seconds. |
 | `scripts/apply-to-tree.sh` | Apply patches AND copy verbatim SDK source drops into the kernel tree. Owns the 266-file invariant. |
 | `scripts/build-kernel.sh` | Native ARM64 kernel build → `work/build/*.deb`. |
 | `scripts/build-ask-modules.sh` | Out-of-tree ASK modules (cdx / fci / auto_bridge) → `ask-modules-*_arm64.deb`. Skipped when FMan SDK absent. |
@@ -106,29 +107,29 @@ CI: `.github/workflows/build-and-release.yml` runs natively on `ubuntu-24.04-arm
 
 ## Cutting an ASK release iteration
 
-Standard flow for a new `kernel-6.6.135-askN`:
+Standard flow for a new `kernel-6.6.137-askN`:
 
 ```bash
 # 1. Author / edit a patch
-( cd work/linux-6.6.135 && git diff --no-prefix ) \
+( cd work/linux-6.6.137 && git diff --no-prefix ) \
   | awk -f scripts/normalize-patch.awk \
   > release/patches/<bucket>/0XX-name.patch
 
 # 2. Re-extract pristine tree, validate
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
-#   Required: Pass: 15   Fail: 0   0 SDK conflicts   266 files
+#   Required: Pass: 16   Fail: 0   0 SDK conflicts   266 files
 
 # 3. Visually verify the affected file
-patch -p1 -d work/linux-6.6.135 < release/patches/<bucket>/0XX-name.patch
-grep -n <expected-content> work/linux-6.6.135/<patched-file>
+patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/0XX-name.patch
+grep -n <expected-content> work/linux-6.6.137/<patched-file>
 
 # 4. Commit (one logical change per commit; prefix per .clinerules/40)
 git commit -am 'ask: …'    # or vyos: / fixes: / sdk: / scripts: / ci: / docs:
 
 # 5. Tag and TAG-ONLY push
-git tag kernel-6.6.135-askN
-git push origin kernel-6.6.135-askN     # ← do NOT also push the branch ref
+git tag kernel-6.6.137-askN
+git push origin kernel-6.6.137-askN     # ← do NOT also push the branch ref
 ```
 
 The `.clinehooks/block-dual-ref-push.sh` pre-push hook will refuse a push that combines a branch ref with a `kernel-*` tag. Engage it via `git config core.hooksPath .clinehooks` if not already configured.
@@ -155,7 +156,7 @@ Full diagnostic checklists per chain live in [`AGENTS.md`](./AGENTS.md#two-chain
 `vyos-ls1046a-build` pins this repo by tag. From its CI:
 
 ```bash
-KERNEL_TAG="kernel-6.6.135-ask50"
+KERNEL_TAG="kernel-6.6.137-ask1"
 gh release download -R mihakralj/lts_6.6_ls1046a "$KERNEL_TAG" \
   --pattern 'linux-*.deb' \
   --pattern 'ask-modules-*.deb' \
@@ -186,7 +187,7 @@ The tag is immutable: byte-identical artefacts forever. The consumer's lockfile 
 | `.clinerules/20-sdk-driver-rules.md` | NXP SDK driver invariants (the why behind ASK). |
 | `.clinerules/30-kconfig-defconfig.md` | Kconfig & defconfig discipline. |
 | `.clinerules/40-commit-style.md` | Commit / tag message style. |
-| `.clinerules/50-thresholds-are-authoritative.md` | Numeric invariants (15 / 0 / 266). |
+| `.clinerules/50-thresholds-are-authoritative.md` | Numeric invariants (16 / 0 / 266). |
 | `.clinerules/60-tooling-paths.md` | Canonical tooling paths. |
 
 ---

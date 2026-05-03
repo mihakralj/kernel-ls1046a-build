@@ -1,4 +1,4 @@
-# Workflow: Cut a `kernel-6.6.135-askN` Release
+# Workflow: Cut a `kernel-6.6.137-askN` Release
 
 End-to-end workflow for shipping a new ASK kernel iteration from this producer
 repo. Follow in order. Do not skip steps. The whole loop costs ~22 min of
@@ -23,13 +23,13 @@ Pick the route that matches your change:
 ### 1b. Patch in `release/patches/<bucket>/`
 - Re-extract a pristine kernel tree:
   ```bash
-  rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+  rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
   ```
 - Apply existing patches up to the insertion point with `patch -p1`.
-- Edit files in `work/linux-6.6.135/`.
+- Edit files in `work/linux-6.6.137/`.
 - Generate the patch:
   ```bash
-  ( cd work/linux-6.6.135 && git diff --no-prefix ) \
+  ( cd work/linux-6.6.137 && git diff --no-prefix ) \
     | awk -f scripts/normalize-patch.awk \
     > release/patches/<bucket>/NNN-name.patch
   ```
@@ -43,7 +43,7 @@ Pick the route that matches your change:
 ## 2. Validate (mandatory, every iteration)
 
 ```bash
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
 ```
 
@@ -58,8 +58,8 @@ silently truncate added lines if a hunk header's `NewCount` is wrong. Visually
 verify the affected file(s):
 
 ```bash
-patch -p1 -d work/linux-6.6.135 < release/patches/<bucket>/<patch>
-grep -n '<expected-content>' work/linux-6.6.135/<patched-file>
+patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/<patch>
+grep -n '<expected-content>' work/linux-6.6.137/<patched-file>
 ```
 
 If your change touched defconfig fragments, also surface the diff:
@@ -96,8 +96,8 @@ Edit `release/manifest.json` and bump the askN field. Commit as `release:`.
 ## 5. Tag and push (TAG ONLY)
 
 ```bash
-git tag kernel-6.6.135-askN
-git push origin kernel-6.6.135-askN
+git tag kernel-6.6.137-askN
+git push origin kernel-6.6.137-askN
 ```
 
 **Forbidden** in the same `git push`:
@@ -120,7 +120,7 @@ pushes do not.
 
 ## 7. After CI is green
 
-- Verify the release: `gh release view kernel-6.6.135-askN`.
+- Verify the release: `gh release view kernel-6.6.137-askN`.
 - Update the consumer pin in `vyos-ls1046a-build/data/ask-kernel.pin`
   (separate repo) and rebuild the ISO there.
 - If the change resolved an open chain (Chain-1 or Chain-2 in `AGENTS.md`),
@@ -138,18 +138,18 @@ pushes do not.
 
 ```bash
 # Local validation loop
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
 
 # Generate a patch
-( cd work/linux-6.6.135 && git diff --no-prefix ) \
+( cd work/linux-6.6.137 && git diff --no-prefix ) \
   | awk -f scripts/normalize-patch.awk \
   > release/patches/ask/0X0-my-change.patch
 
 # Tag-only release push
-git tag kernel-6.6.135-askN && git push origin kernel-6.6.135-askN
+git tag kernel-6.6.137-askN && git push origin kernel-6.6.137-askN
 
 # Inspect CI
 gh run list --workflow=build-and-release.yml --limit 5
 gh run view <id> --log-failed
-gh release view kernel-6.6.135-askN
+gh release view kernel-6.6.137-askN

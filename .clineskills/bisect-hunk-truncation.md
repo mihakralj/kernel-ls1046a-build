@@ -32,17 +32,17 @@ Any output here is a P0 candidate; proceed to stage 1 for each finding.
 `git apply` is permissive about hunk-header arithmetic; `--check` plus `--numstat` exposes the ground truth:
 
 ```bash
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
-( cd work/linux-6.6.135 && git init -q && git add -A && git commit -qm pristine )
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
+( cd work/linux-6.6.137 && git init -q && git add -A && git commit -qm pristine )
 
 # Apply every patch up to (but not including) the suspect one:
 for p in $(ls release/patches/{vyos,ask,fixes}/*.patch | sort); do
     [[ "$p" == "$SUSPECT" ]] && break
-    git -C work/linux-6.6.135 apply --index "$p"
+    git -C work/linux-6.6.137 apply --index "$p"
 done
 
 # Apply suspect with --numstat to see what git THINKS it changed:
-git -C work/linux-6.6.135 apply --numstat "$SUSPECT"
+git -C work/linux-6.6.137 apply --numstat "$SUSPECT"
 
 # Cross-check: count actual +/- lines in the patch body:
 awk '
@@ -60,14 +60,14 @@ A discrepancy between `git apply --numstat`'s `added`/`removed` columns and the 
 
 ```bash
 # Reset, apply ONLY the suspect, then diff applied tree vs raw patch
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
-patch -p1 -d work/linux-6.6.135 < "$SUSPECT"
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
+patch -p1 -d work/linux-6.6.137 < "$SUSPECT"
 
 # For each touched file, list the lines the patch SAID it would add:
 grep -E '^\+[^+]' "$SUSPECT" | sed 's/^+//'
 
 # And confirm presence in the tree:
-grep -nF '<expected-line>' work/linux-6.6.135/<target-file>
+grep -nF '<expected-line>' work/linux-6.6.137/<target-file>
 ```
 
 Any "expected line" that doesn't appear in the tree is a confirmed truncation.
@@ -89,10 +89,10 @@ Edit only the header. **Do not** add or remove body lines to "match" the wrong h
 
 ```bash
 .clinehooks/patch-hunk-validator.sh "$SUSPECT"           # zero issues
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release            # Pass:13 Fail:0
-patch -p1 -d work/linux-6.6.135 < "$SUSPECT"
-grep -n '<expected-content>' work/linux-6.6.135/<file>   # all expected lines present
+patch -p1 -d work/linux-6.6.137 < "$SUSPECT"
+grep -n '<expected-content>' work/linux-6.6.137/<file>   # all expected lines present
 ```
 
 ## Stage 4 — git-bisect across asks (if the regression slipped past producer CI)
@@ -101,13 +101,13 @@ If you don't yet know which patch broke things, bisect the producer tag history:
 
 ```bash
 git bisect start
-git bisect bad  kernel-6.6.135-ask<bad>
-git bisect good kernel-6.6.135-ask<last-known-good>
+git bisect bad  kernel-6.6.137-ask<bad>
+git bisect good kernel-6.6.137-ask<last-known-good>
 git bisect run bash -c '
-  rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/ &&
+  rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/ &&
   bash scripts/apply-to-tree.sh &&
   grep -q "obj-\$(CONFIG_FSL_SDK_FMAN) += sdk_fman/" \
-       work/linux-6.6.135/drivers/net/ethernet/freescale/Makefile
+       work/linux-6.6.137/drivers/net/ethernet/freescale/Makefile
 '
 ```
 
@@ -121,5 +121,5 @@ A successful bisect-hunk-truncation pass produces:
 2. Header arithmetic that previously failed and now passes.
 3. A clean `.clinehooks/patch-hunk-validator.sh` (zero output).
 4. A green `scripts/patch-health.sh --source release` (`Pass: 13 Fail: 0`, `0 SDK conflicts`, `264 files to install`).
-5. A `grep` confirmation that every `+`-line from the patch body is present in `work/linux-6.6.135/<target-file>` post-apply.
+5. A `grep` confirmation that every `+`-line from the patch body is present in `work/linux-6.6.137/<target-file>` post-apply.
 6. A commit with prefix matching the bucket (`ask:` / `vyos:` / `fixes:`) and a body referencing the truncation symptom and the corrected counts.

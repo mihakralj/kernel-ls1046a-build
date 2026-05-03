@@ -11,7 +11,7 @@ Use the existing scripts under `scripts/` rather than re-implementing their logi
 | `scripts/run-pipeline.sh` | Full local build pipeline. Slow; use when verifying end-to-end. |
 | `scripts/build-kernel.sh` | Kernel-only build step. |
 | `scripts/build-ask-iptables.sh` / `build-ask-modules.sh` / `build-ask-ppp.sh` | Out-of-tree component builds. |
-| `scripts/fetch-kernel.sh` | Refresh `work/linux-6.6.135.tar.xz` from upstream. |
+| `scripts/fetch-kernel.sh` | Refresh `work/linux-6.6.137.tar.xz` from upstream. |
 | `scripts/fetch-reference.sh` / `fetch-upstream.sh` / `sync-upstream.sh` | Pull upstream / reference trees for diffing. |
 | `scripts/derive-patches.sh` | Regenerate patches from a reference tree. |
 | `scripts/split-reference-patch.sh` | Split a monolithic reference patch into ASK buckets. |
@@ -30,19 +30,19 @@ Use the existing scripts under `scripts/` rather than re-implementing their logi
 3. **Do not bypass `scripts/apply-to-tree.sh`** when staging the kernel tree. The 264-file SDK install count is enforced through it.
 4. **If a script is wrong**, fix it in a `scripts:` commit; don't work around it.
 5. **Working directory layout** is fixed:
-   - `work/linux-6.6.135.tar.xz` — pristine kernel tarball.
-   - `work/linux-6.6.135/` — extracted, dirty working tree (always re-extract before validation).
+   - `work/linux-6.6.137.tar.xz` — pristine kernel tarball.
+   - `work/linux-6.6.137/` — extracted, dirty working tree (always re-extract before validation).
    - `release/patches/`, `release/vyos-base/`, `release/ask.config`, `release/manifest.json` — sources of truth.
 
 ## Useful one-liners
 
 ```bash
 # Reset to pristine and validate
-rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
+rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
 
 # Author a patch
-( cd work/linux-6.6.135 && git diff --no-prefix ) \
+( cd work/linux-6.6.137 && git diff --no-prefix ) \
   | awk -f scripts/normalize-patch.awk \
   > release/patches/ask/0X0-my-change.patch
 

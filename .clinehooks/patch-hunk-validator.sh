@@ -168,10 +168,10 @@ if (( issues > 0 )); then
         echo
         echo "git apply will SUCCEED on a wrong header but truncate added lines."
         echo "Re-run after fixing:"
-        echo "  rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/"
+        echo "  rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/"
         echo "  bash scripts/patch-health.sh --source release"
-        echo "  patch -p1 -d work/linux-6.6.135 < <bad.patch>"
-        echo "  grep -n '<expected post-patch content>' work/linux-6.6.135/<file>"
+        echo "  patch -p1 -d work/linux-6.6.137 < <bad.patch>"
+        echo "  grep -n '<expected post-patch content>' work/linux-6.6.137/<file>"
         echo
         echo "See .clinerules/10-patch-authoring.md."
     } >&2
