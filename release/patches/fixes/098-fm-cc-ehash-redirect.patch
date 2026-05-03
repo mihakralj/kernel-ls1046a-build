@@ -1,0 +1,25 @@
+--- a/drivers/net/ethernet/freescale/sdk_fman/Peripherals/FM/Pcd/fm_cc.c
++++ b/drivers/net/ethernet/freescale/sdk_fman/Peripherals/FM/Pcd/fm_cc.c
+@@ -7602,6 +7602,22 @@
+     SANITY_CHECK_RETURN_VALUE(h_FmPcd, E_INVALID_HANDLE, NULL);
+     SANITY_CHECK_RETURN_VALUE(p_Param, E_NULL_POINTER, NULL);
+ 
++#if (DPAA_VERSION >= 11) && defined(USE_ENHANCED_EHASH)
++    /* ASK-6.6: when the caller asked for an external (DDR-resident) hash
++     * table, dispatch to ExternalHashTableSet() so the returned handle is
++     * a struct en_exthash_info * — matching what the rest of the EHASH
++     * code path (FM_PCD_HashTableAddKey, FM_PCD_CcRootBuild ->
++     * copy_td_to_ccbase, FM_PCD_HashTableModifyMissNextEngine, etc.)
++     * unconditionally casts it to.  Without this redirect, the in-MURAM
++     * CC-node path below was used for external hashes, the returned
++     * t_FmPcdCcNode * was later reinterpreted as en_exthash_info *, and
++     * the first field load (info->node->word_1 at offset 0x18) NULL-
++     * deref'd in copy_td_to_ccbase() at FM_PCD_CcRootBuild time.
++     */
++    if (p_Param->externalHash)
++        return ExternalHashTableSet(h_FmPcd, p_Param);
++#endif /* (DPAA_VERSION >= 11) && USE_ENHANCED_EHASH */
++
+     if (p_Param->maxNumOfKeys == 0)
+     {
+         REPORT_ERROR(MINOR, E_INVALID_VALUE, ("Max number of keys must be higher then 0"));
