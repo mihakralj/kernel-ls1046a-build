@@ -1,0 +1,72 @@
+SDK FMan stdlib_ext: drop string prototypes that clash with FORTIFY_SOURCE
+
+The NXP lf-6.x SDK header inc/stdlib_ext.h re-declares strlen, strnlen,
+strcpy, strncpy, and strtok as plain functions inside the
+"defined(NCSW_LINUX) && defined(__KERNEL__)" branch.  Mainline 6.6
+defines these names as __builtin_choose_expr-based macros via
+<linux/fortify-string.h> (pulled in transitively by string_ext.h ->
+<linux/string.h>).  Compiling any TU that includes both produces:
+
+  ./include/linux/fortify-string.h:218:9: error: expected identifier or
+      '(' before '__builtin_choose_expr'
+
+Drop the five offending prototypes -- the kernel already provides them
+via <linux/string.h>, fortified.  vsprintf/vsnprintf/vsscanf/atoi are
+left intact (they do not collide with FORTIFY_SOURCE on 6.6).
+
+This mirrors the equivalent port done in the ask-ls1046a-6.6 reference
+tree which compiles against mainline 6.6 with the SDK in-tree.
+
+--- a/drivers/net/ethernet/freescale/sdk_fman/inc/stdlib_ext.h
++++ b/drivers/net/ethernet/freescale/sdk_fman/inc/stdlib_ext.h
+@@ -79,46 +79,11 @@
+  */
+ int atoi(const char *s);
+ 
+-/**
+- * strnlen - Find the length of a length-limited string
+- * @s: The string to be sized
+- * @count: The maximum number of bytes to search
+- */
+-size_t strnlen(const char * s, size_t count);
+-
+-/**
+- * strlen - Find the length of a string
+- * @s: The string to be sized
+- */
+-size_t strlen(const char * s);
+-
+-/**
+- * strtok - Split a string into tokens
+- * @s: The string to be searched
+- * @ct: The characters to search for
+- *
+- * WARNING: strtok is deprecated, use strsep instead.
+- */
+-char * strtok(char * s,const char * ct);
+-
+-/**
+- * strncpy - Copy a length-limited, %NUL-terminated string
+- * @dest: Where to copy the string to
+- * @src: Where to copy the string from
+- * @count: The maximum number of bytes to copy
+- *
+- * Note that unlike userspace strncpy, this does not %NUL-pad the buffer.
+- * However, the result is not %NUL-terminated if the source exceeds
+- * @count bytes.
+- */
+-char * strncpy(char * dest,const char *src,size_t count);
+-
+-/**
+- * strcpy - Copy a %NUL terminated string
+- * @dest: Where to copy the string to
+- * @src: Where to copy the string from
++/*
++ * Note: strlen, strnlen, strcpy, strncpy, strtok are provided by
++ * <linux/string.h> in modern kernels. The kernel's FORTIFY_SOURCE
++ * implementation defines these as macros, so we cannot redeclare them.
+  */
+-char * strcpy(char * dest,const char *src);
+ 
+ /**
+  * vsscanf - Unformat a buffer into a list of arguments

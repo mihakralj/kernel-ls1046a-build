@@ -191,7 +191,7 @@ static struct bm_portal_config * __init parse_pcfg(struct device_node *node)
 		goto err;
 
 #if defined(CONFIG_ARM) || defined(CONFIG_ARM64)
-	pcfg->addr_virt[DPA_PORTAL_CE] = ioremap_cache(
+	pcfg->addr_virt[DPA_PORTAL_CE] = ioremap_cache_ns(
                                 pcfg->addr_phys[DPA_PORTAL_CE].start,
                                 resource_size(&pcfg->addr_phys[DPA_PORTAL_CE]));
         pcfg->addr_virt[DPA_PORTAL_CI] = ioremap(
@@ -382,13 +382,14 @@ __init int bman_init(void)
 	LIST_HEAD(shared_pcfgs);
 	struct device_node *dn;
 	struct bm_portal_config *pcfg;
+	struct cpumask offline_cpus;
+	bool need_cleanup = false;
 	struct bman_portal *p;
 	int cpu, ret;
-	struct cpumask offline_cpus;
 
 	/* Initialise the Bman (CCSR) device */
 	for_each_compatible_node(dn, NULL, "fsl,bman") {
-		if (!bman_init_ccsr(dn))
+		if (!bman_init_ccsr(dn, &need_cleanup))
 			pr_info("Bman err interrupt handler present\n");
 		else
 			pr_err("Bman CCSR setup failed\n");
@@ -486,6 +487,22 @@ __init int bman_init(void)
 	if (!cpumask_empty(&slave_cpus))
 		for_each_cpu(cpu, &slave_cpus)
 			init_slave(cpu);
+
+	if (need_cleanup) {
+		int i;
+
+		pr_info("BMan wasn't reset prior to boot, emptying all %d buffer pools\n",
+			bman_pool_max);
+
+		for (i = 0; i < bman_pool_max; i++) {
+			ret = bman_shutdown_pool(i);
+			if (ret) {
+				pr_err("Failed to shut down buffer pool %d: %pe\n",
+				       i, ERR_PTR(ret));
+			}
+		}
+	}
+
 	pr_info("Bman portals initialised\n");
 	cpumask_andnot(&offline_cpus, cpu_possible_mask, cpu_online_mask);
 	for_each_cpu(cpu, &offline_cpus)

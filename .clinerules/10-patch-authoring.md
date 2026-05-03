@@ -10,7 +10,7 @@ release/patches/fixes/       # 090+      — 6.6.y-specific repairs and hotfixes
 
 Within each bucket, patches are sorted by filename prefix. Numbering buckets are reserved — do NOT renumber across buckets.
 
-SDK driver source files (NXP SDK, 264 of them) live under `release/patches/kernel/sdk-sources/<mirrored-path>` and are copied verbatim into the kernel tree by `scripts/apply-to-tree.sh`. They are NOT patches — never convert them to `.patch` form.
+SDK driver source files (NXP SDK, 262 of them) live under `release/patches/kernel/sdk-sources/<mirrored-path>` and are copied verbatim into the kernel tree by `scripts/apply-to-tree.sh`. They are NOT patches — never convert them to `.patch` form.
 
 ## Mandatory verification loop after ANY patch edit
 
@@ -26,7 +26,7 @@ After every patch edit, in order:
    ```bash
    bash scripts/patch-health.sh --source release
    ```
-   Required result: `Pass: 13   Fail: 0`, `0 SDK conflicts`, `264 files to install`.
+   Required result: `Pass: 18   Fail: 0`, `0 SDK conflicts`, `262 files to install`.
 3. Visually verify the affected hunk(s):
    ```bash
    patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/<patch>

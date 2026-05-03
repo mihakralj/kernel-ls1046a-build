@@ -1,0 +1,42 @@
+arm64: add ioremap_cache_ns() shim for NXP SDK callers
+
+drivers/staging/fsl_qbman/{bman,qman}_driver.c calls ioremap_cache_ns()
+to map the QBMan portal cache-enabled region.  NXP's lf-6.x kernels
+ship this helper in arch/arm64/include/asm/io.h as
+
+  #define ioremap_cache_ns(addr, size) \
+        ioremap_prot((addr), (size), PROT_NORMAL_NS)
+
+but PROT_NORMAL_NS (TLB attr Non-Secure) is an NXP-private addition
+absent from mainline.  On stock linux-6.6.137 the call is therefore
+an implicit-function-declaration and dies under -Werror:
+
+  drivers/staging/fsl_qbman/bman_driver.c:194:42:
+    error: implicit declaration of function 'ioremap_cache_ns';
+           did you mean 'ioremap_cache'?
+  drivers/staging/fsl_qbman/qman_driver.c:451:42: <same>
+
+Provide a one-line shim that aliases ioremap_cache_ns() to the existing
+mainline ioremap_cache().  The two attribute sets differ only in the
+NS (Non-Secure) bit; on this SoC running in EL2 we never enter the
+secure world via these portals, so the cacheable mapping is functionally
+correct (and is what the older 5.4 SDK overlay used before NXP added
+the dedicated _ns variant).
+
+Placing the shim after the existing "#define ioremap_cache ioremap_cache"
+self-define keeps it in the same idiom and just before the static-inline
+ioremap_cache() definition that backs both names.
+
+--- a/arch/arm64/include/asm/io.h
++++ b/arch/arm64/include/asm/io.h
+@@ -162,6 +162,10 @@
+ #include <asm-generic/io.h>
+ 
+ #define ioremap_cache ioremap_cache
++/* NXP SDK compat: lf-6.x defines this with PROT_NORMAL_NS; mainline lacks it.
++ * Cacheable mapping is a strict superset for our portal-CE use; alias it. */
++#define ioremap_cache_ns(addr, size) ioremap_cache((addr), (size))
++
+ static inline void __iomem *ioremap_cache(phys_addr_t addr, size_t size)
+ {
+ 	if (pfn_is_map_memory(__phys_to_pfn(addr)))

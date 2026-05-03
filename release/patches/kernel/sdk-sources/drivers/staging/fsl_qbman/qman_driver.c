@@ -1,5 +1,4 @@
 /* Copyright 2008-2012 Freescale Semiconductor, Inc.
- * Copyright 2019-2023 NXP
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -449,7 +448,7 @@ static struct qm_portal_config * __init parse_pcfg(struct device_node *node)
 		goto err;
 
 #if defined(CONFIG_ARM) || defined(CONFIG_ARM64)
-	pcfg->addr_virt[DPA_PORTAL_CE] = ioremap_cache(
+	pcfg->addr_virt[DPA_PORTAL_CE] = ioremap_cache_ns(
                                 pcfg->addr_phys[DPA_PORTAL_CE].start,
                                 resource_size(&pcfg->addr_phys[DPA_PORTAL_CE]));
 
@@ -614,13 +613,13 @@ void qm_put_unused_portal(struct qm_portal_config *pcfg)
 }
 
 static struct qman_portal *init_pcfg(struct qm_portal_config *pcfg,
- bool need_cleanup)
+				     bool need_cleanup)
 {
-struct qman_portal *p;
+	struct qman_portal *p;
 
-pcfg->iommu_domain = NULL;
-portal_set_cpu(pcfg, pcfg->public_cfg.cpu);
-p = qman_create_affine_portal(pcfg, NULL, need_cleanup);
+	pcfg->iommu_domain = NULL;
+	portal_set_cpu(pcfg, pcfg->public_cfg.cpu);
+	p = qman_create_affine_portal(pcfg, NULL, need_cleanup);
 	if (p) {
 		u32 irq_sources = 0;
 		/* Determine what should be interrupt-vs-poll driven */
@@ -724,50 +723,6 @@ static int qman_online_cpu(unsigned int cpu)
 
 #endif /* CONFIG_HOTPLUG_CPU */
 
-#ifdef CONFIG_FSL_DPAA_ETHERCAT
-__init void qman_ethercat_portal_init(int cpu)
-{
-	struct qm_portal_config *pcfg;
-	struct qman_portal *p;
-
-	pcfg = get_pcfg(&unused_pcfgs);
-	if (pcfg) {
-		pcfg->public_cfg.cpu = cpu;
-		pcfg->public_cfg.is_shared = 0;
-
-		pcfg->iommu_domain = NULL;
-		portal_set_cpu(pcfg, pcfg->public_cfg.cpu);
-		p = qman_create_affine_portal_ethercat(pcfg, NULL, cpu);
-		if (p) {
-			pr_info("Qman portal %sinitialised, cpu %d\n",
-				pcfg->public_cfg.is_shared ? "(shared) " : "",
-				pcfg->public_cfg.cpu);
-		} else {
-			pr_crit("Qman portal failure on cpu %d\n",
-				pcfg->public_cfg.cpu);
-		}
-		return;
-	}
-}
-
-static u32 qman_affine_last_cpu;
-
-u32 qman_get_affine_last_cpu(void)
-{
-	return qman_affine_last_cpu;
-}
-
-__init void qman_ethercat_portal_init_on_cpu(void)
-{
-	int cpu = 0;
-
-	for_each_online_cpu(cpu) {
-		qman_affine_last_cpu = cpu;
-		qman_ethercat_portal_init(cpu);
-	}
-}
-#endif
-
 __init int qman_init(void)
 {
 	struct cpumask slave_cpus;
@@ -778,17 +733,17 @@ __init int qman_init(void)
 	struct device_node *dn;
 	struct qm_portal_config *pcfg;
 	struct qman_portal *p;
-int cpu, ret;
-const u32 *clk;
-struct cpumask offline_cpus;
-bool need_cleanup = false;
+	int cpu, ret, i;
+	const u32 *clk;
+	struct cpumask offline_cpus;
+	bool need_cleanup = false;
 
-/* Initialise the Qman (CCSR) device */
-for_each_compatible_node(dn, NULL, "fsl,qman") {
-if (!qman_init_ccsr(dn, &need_cleanup))
-pr_info("Qman err interrupt handler present\n");
-else
-pr_err("Qman CCSR setup failed\n");
+	/* Initialise the Qman (CCSR) device */
+	for_each_compatible_node(dn, NULL, "fsl,qman") {
+		if (!qman_init_ccsr(dn, &need_cleanup))
+			pr_info("Qman err interrupt handler present\n");
+		else
+			pr_err("Qman CCSR setup failed\n");
 
 		clk = of_get_property(dn, "clock-frequency", NULL);
 		if (!clk)
@@ -894,20 +849,20 @@ pr_err("Qman CCSR setup failed\n");
 			list_add_tail(&pcfg->list, &shared_pcfgs);
 		}
 	}
-list_for_each_entry(pcfg, &unshared_pcfgs, list) {
-pcfg->public_cfg.is_shared = 0;
-p = init_pcfg(pcfg, need_cleanup);
-if (!p) {
-pr_crit("Unable to configure portals\n");
-return 0;
-}
-}
-list_for_each_entry(pcfg, &shared_pcfgs, list) {
-pcfg->public_cfg.is_shared = 1;
-p = init_pcfg(pcfg, need_cleanup);
-if (p)
-shared_portals[num_shared_portals++] = p;
-}
+	list_for_each_entry(pcfg, &unshared_pcfgs, list) {
+		pcfg->public_cfg.is_shared = 0;
+		p = init_pcfg(pcfg, need_cleanup);
+		if (!p) {
+			pr_crit("Unable to configure portals\n");
+			return 0;
+		}
+	}
+	list_for_each_entry(pcfg, &shared_pcfgs, list) {
+		pcfg->public_cfg.is_shared = 1;
+		p = init_pcfg(pcfg, need_cleanup);
+		if (p)
+			shared_portals[num_shared_portals++] = p;
+	}
 	if (!cpumask_empty(&slave_cpus))
 		for_each_cpu(cpu, &slave_cpus)
 			init_slave(cpu);
@@ -925,9 +880,22 @@ shared_portals[num_shared_portals++] = p;
 	}
 #endif
 
-#ifdef CONFIG_FSL_DPAA_ETHERCAT
-	qman_ethercat_portal_init_on_cpu();
-#endif
+	if (need_cleanup) {
+		size_t num_fqs = get_qman_fqd_size() / 64;
+
+		pr_info("QMan wasn't reset prior to boot, shutting down %zu FQs\n",
+			num_fqs);
+
+		for (i = 0; i < num_fqs; i++) {
+			ret = qman_shutdown_fq(i);
+			if (ret) {
+				pr_err("QMan: Failed to shutdown frame queue %d: %pe\n",
+				       i, ERR_PTR(ret));
+			}
+		}
+		pr_info("QMan: shutdown finished, enabling IRQs\n");
+		qman_enable_irqs();
+	}
 
 	return 0;
 }
