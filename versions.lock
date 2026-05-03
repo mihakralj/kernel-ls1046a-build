@@ -26,7 +26,7 @@
 # Pinned for deterministic builds. Empty → fetch-kernel.sh picks latest
 # 6.6.y from kernel.org. Bump this in a dedicated commit + tag when you
 # want to track a newer LTS point release.
-: "${KERNEL_VERSION:=6.6.135}"
+: "${KERNEL_VERSION:=6.6.137}"
 
 # ── File paths inside upstream 6.12 tree ───────────────────────────────
 : "${UPSTREAM_KERNEL_PATCH:=patches/kernel/002-mono-gateway-ask-kernel_linux_6_12.patch}"
