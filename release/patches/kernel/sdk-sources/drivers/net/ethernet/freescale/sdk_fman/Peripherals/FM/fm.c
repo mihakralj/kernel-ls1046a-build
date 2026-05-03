@@ -52,6 +52,9 @@
 #include <linux/fsl/svr.h>
 #endif
 #include "fsl_fman.h"
+#ifdef AUTO_FIRMWARE_LOAD
+#include <linux/fsl/ls1043_r2.h>
+#endif // AUTO_FIRMWARE_LOAD
 
 
 /****************************************/
@@ -3297,6 +3300,9 @@ t_Error FmDumpPortRegs (t_Handle h_Fm, uint8_t hardwarePortId)
 }
 #endif /* (defined(DEBUG_ERRORS) && (DEBUG_ERRORS > 0)) */
 
+#ifdef AUTO_FIRMWARE_LOAD
+uint32_t fman_firmware[] = LS1043_R1_0_UC_IMG;
+#endif //AUTO_FIRMWARE_LOAD
 
 /*****************************************************************************/
 /*                      API Init unit functions                              */
@@ -3414,6 +3420,7 @@ t_Handle FM_Config(t_FmParams *p_FmParam)
     p_Fm->p_FmDriverParam->qmi_deq_option_support = TRUE;
 #endif /* !FM_QMI_NO_DEQ_OPTIONS_SUPPORT */
 
+#ifndef AUTO_FIRMWARE_LOAD
     p_Fm->p_FmStateStruct->ramsEccEnable        = FALSE;
     p_Fm->p_FmStateStruct->extraFifoPoolSize    = 0;
     p_Fm->p_FmStateStruct->exceptions           = DEFAULT_exceptions;
@@ -3438,6 +3445,16 @@ t_Handle FM_Config(t_FmParams *p_FmParam)
         }
         memcpy(p_Fm->firmware.p_Code, p_FmParam->firmware.p_Code ,p_Fm->firmware.size);
     }
+    printk("***************************************************************\n");
+    printk("%s(%d) FMan-Controller code (ver %d.%d.%d) (0x%x)\n", __FUNCTION__,__LINE__,
+               ((p_Fm->firmware.p_Code)[1] & 0xffff0000) >> 16 ,
+               ((p_Fm->firmware.p_Code)[1] & 0x0000ff00) >> 8,
+               (p_Fm->firmware.p_Code)[1] & 0x000000ff, (p_Fm->firmware.p_Code)[1]);
+     printk("&*&*^&^&^^&*^&*^&*^&*^&*^&^&*^&*^&*^&*^&*^&*^&*^&*^&*^&*^&*^&*^&*\n");
+
+#ifdef AUTO_FIRMWARE_LOAD
+uint32_t fman_firmware[] = LS1043_R1_0_UC_IMG;
+#endif //AUTO_FIRMWARE_LOAD
 
     if (p_Fm->guestId != NCSW_MASTER_ID)
         return p_Fm;
@@ -3562,6 +3579,11 @@ t_Error FM_Init(t_Handle h_Fm)
             RETURN_ERROR(MAJOR, err, NO_MSG);
 #else  /* not FM_UCODE_NOT_RESET_ERRATA_BUGZILLA6173 */
 
+#ifdef CONFIG_FMAN_ARM
+	WRITE_UINT32(p_Fm->p_FmFpmRegs->fm_rstc, FPM_RSTC_FM_RESET);
+	CORE_MemoryBarrier();
+	XX_UDelay(100);
+#endif
         if (p_Fm->f_ResetOnInitOverride)
         {
         	/* Perform user specific FMan reset */
@@ -3580,6 +3602,23 @@ t_Error FM_Init(t_Handle h_Fm)
         }
 #endif /* not FM_UCODE_NOT_RESET_ERRATA_BUGZILLA6173 */
     }
+#else
+    p_Fm->firmware.size                        = 0;
+    {
+        p_Fm->firmware.size = sizeof(fman_firmware);
+        p_Fm->firmware.p_Code = fman_firmware;
+    }
+    printk("%s(%d) FMAN version extracted from ls1043_r2.h: (%d.%d.%d) (0x%x) \n",
+		 __FUNCTION__,__LINE__, (fman_firmware[1] & 0xffff0000) >> 16, (fman_firmware[1] & 0x0000ff00) >> 8,
+		fman_firmware[1] & 0x000000ff, fman_firmware[1]);
+#endif //AUTO_FIRMWARE_LOAD
+    printk("***************************************************************\n");
+    printk("%s(%d) FMan-Controller code (ver %d.%d.%d) (0x%x)\n", __FUNCTION__,__LINE__,
+               ((p_Fm->firmware.p_Code)[1] & 0xffff0000) >> 16 ,
+               ((p_Fm->firmware.p_Code)[1] & 0x0000ff00) >> 8,
+               (p_Fm->firmware.p_Code)[1] & 0x000000ff, (p_Fm->firmware.p_Code)[1]);
+     printk("&*&*^&^&^^&*^&*^&*^&*^&*^&^&*^&*^&*^&*^&*^&*^&*^&*^&*^&*^&*^&*^&*\n");
+
 
 #ifdef FM_UCODE_NOT_RESET_ERRATA_BUGZILLA6173
     if (!p_Fm->resetOnInit) /* Skip operations done in errata workaround */
@@ -3694,13 +3733,13 @@ t_Error FM_Init(t_Handle h_Fm)
     /* Register the FM interrupts handlers */
     if (p_Fm->p_FmStateStruct->irq != NO_IRQ)
     {
-        XX_SetIntr(p_Fm->p_FmStateStruct->irq, FM_EventIsr, p_Fm);
+        XX_SetIntr(p_Fm->p_FmStateStruct->irq, (t_Isr *)FM_EventIsr, p_Fm);
         XX_EnableIntr(p_Fm->p_FmStateStruct->irq);
     }
 
     if (p_Fm->p_FmStateStruct->errIrq != NO_IRQ)
     {
-        XX_SetIntr(p_Fm->p_FmStateStruct->errIrq, FM_ErrorIsr, p_Fm);
+        XX_SetIntr(p_Fm->p_FmStateStruct->errIrq, (t_Isr *)FM_ErrorIsr, p_Fm);
         XX_EnableIntr(p_Fm->p_FmStateStruct->errIrq);
     }
 
@@ -3710,12 +3749,13 @@ t_Error FM_Init(t_Handle h_Fm)
 
     EnableTimeStamp(p_Fm);
 
-    if (p_Fm->firmware.p_Code)
-    {
+#ifndef AUTO_FIRMWARE_LOAD
+   if (p_Fm->firmware.p_Code)
+   {
         XX_Free(p_Fm->firmware.p_Code);
         p_Fm->firmware.p_Code = NULL;
     }
-
+#endif //AUTO_FIRMWARE_LOAD
     XX_Free(p_Fm->p_FmDriverParam);
     p_Fm->p_FmDriverParam = NULL;
 
@@ -3802,8 +3842,10 @@ t_Error FM_Free(t_Handle h_Fm)
 
     if (p_Fm->p_FmDriverParam)
     {
+#ifndef AUTO_FIRMWARE_LOAD
         if (p_Fm->firmware.p_Code)
-            XX_Free(p_Fm->firmware.p_Code);
+           XX_Free(p_Fm->firmware.p_Code);
+#endif //AUTO_FIRMWARE_LOAD
         XX_Free(p_Fm->p_FmDriverParam);
         p_Fm->p_FmDriverParam = NULL;
     }
@@ -3816,6 +3858,43 @@ t_Error FM_Free(t_Handle h_Fm)
     XX_Free(p_Fm);
 
     return E_OK;
+}
+
+uint32_t FM_ReadTimeStamp(t_Handle h_Fm)
+{
+    t_Fm *p_Fm = (t_Fm*)h_Fm;
+    struct fman_fpm_regs *fpm_reg;
+
+    SANITY_CHECK_RETURN_ERROR(p_Fm, 0);
+
+    fpm_reg = p_Fm->p_FmFpmRegs;
+
+    ASSERT_COND(p_Fm->p_FmStateStruct);
+
+    if (!p_Fm->p_FmStateStruct->enabledTimeStamp) {
+        REPORT_ERROR(MAJOR, E_INVALID_STATE,
+				("Timestamp not enabled on this FMan"));
+	return 0;
+    }
+
+    return GET_UINT32(fpm_reg->fmfp_tsp);
+}
+
+uint32_t FM_GetTimeStampIncrementPerUsec(t_Handle h_Fm)
+{
+    t_Fm *p_Fm = (t_Fm*)h_Fm;
+
+    SANITY_CHECK_RETURN_ERROR(p_Fm, 0);
+
+    ASSERT_COND(p_Fm->p_FmStateStruct);
+
+    if (!p_Fm->p_FmStateStruct->enabledTimeStamp) {
+        REPORT_ERROR(MAJOR, E_INVALID_STATE,
+				("Timestamp not enabled on this FMan"));
+	return 0;
+    }
+
+    return (uint32_t)0x1 << p_Fm->p_FmStateStruct->count1MicroBit;
 }
 
 /*************************************************/

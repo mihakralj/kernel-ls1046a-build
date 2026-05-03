@@ -12,7 +12,7 @@ ccflags-y += -I$(NCSW_FM_INC)
 
 obj-y		+= fsl-ncsw-Pcd.o
 
-fsl-ncsw-Pcd-objs	:= fman_kg.o fman_prs.o fm_cc.o fm_kg.o fm_pcd.o fm_plcr.o fm_prs.o fm_manip.o
+fsl-ncsw-Pcd-objs	:= fman_kg.o fman_prs.o fm_cc.o fm_kg.o fm_pcd.o fm_plcr.o fm_prs.o fm_manip.o fm_ehash.o
 
 ifeq ($(CONFIG_FMAN_V3H),y)
 fsl-ncsw-Pcd-objs	+= fm_replic.o
@@ -24,3 +24,8 @@ ifeq ($(CONFIG_FMAN_ARM),y)
 fsl-ncsw-Pcd-objs	+= fm_replic.o
 endif
 
+
+## To enable debug printing, set the env var FMAN_DEBUG to define the debug symbols
+## For example:
+##setenv FMAN_DEBUG '-DFM_CC_MURAM_DEBUG=1'
+ccflags-y += $(FMAN_DEBUG)

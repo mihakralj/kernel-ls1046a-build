@@ -1506,6 +1506,17 @@ void *fm_port_get_handle(const struct fm_port *port)
 }
 EXPORT_SYMBOL(fm_port_get_handle);
 
+int fm_port_get_hwid(const struct fm_port *port)
+{
+	uint8_t id;
+
+	t_LnxWrpFmPortDev *p_LnxWrpFmPortDev = (t_LnxWrpFmPortDev*)port;
+	return(FmPortGetHardwarePortId(p_LnxWrpFmPortDev->h_Dev));
+
+}
+EXPORT_SYMBOL(fm_port_get_hwid);
+
+
 u64 *fm_port_get_buffer_time_stamp(const struct fm_port *port,
 		const void *data)
 {
@@ -1890,12 +1901,28 @@ int fm_mac_resume(struct fm_mac_dev *fm_mac_dev)
 }
 EXPORT_SYMBOL(fm_mac_resume);
 
+int fm_mac_set_allmulti(struct fm_mac_dev *fm_mac_dev,
+		bool enable)
+{
+	int	_errno;
+	t_Error	err;
+
+	err = FM_MAC_SetAllMulti(fm_mac_dev, enable);
+	_errno = -GET_ERROR_TYPE(err);
+	if (unlikely(_errno < 0))
+		pr_err("FM_MAC_SetPromiscuous() = 0x%08x\n", err);
+
+	return _errno;
+}
+EXPORT_SYMBOL(fm_mac_set_allmulti);
+
 int fm_mac_set_promiscuous(struct fm_mac_dev *fm_mac_dev,
 		bool enable)
 {
 	int	_errno;
 	t_Error	err;
 
+        printk("%s::%d \r\n", __FUNCTION__, __LINE__);
 	err = FM_MAC_SetPromiscuous(fm_mac_dev, enable);
 	_errno = -GET_ERROR_TYPE(err);
 	if (unlikely(_errno < 0))

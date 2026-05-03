@@ -49,7 +49,17 @@
 #include "fm_hc.h"
 #include "fm_cc.h"
 #include "crc64.h"
+#include "fm_cc_dbg.h"
+#include "fm_ehash.h"
 
+//#define FM_EHASH_DEBUG 1
+#ifdef USE_ENHANCED_EHASH
+extern t_Handle ExternalHashTableSet(t_Handle h_FmPcd, t_FmPcdHashTableParams *p_Param);
+extern t_Error ExternalHashTableAddKey(t_Handle h_HashTbl, uint8_t keySize,
+                                       t_FmPcdCcKeyParams *p_KeyParams);
+extern t_Error ExternalHashTableModifyMissNextEngine(t_Handle h_HashTbl,
+                                       t_FmPcdCcNextEngineParams *p_FmPcdCcNextEngineParams);
+#endif
 /****************************************/
 /*       static functions               */
 /****************************************/
@@ -278,7 +288,7 @@ static void FillAdOfTypeContLookup(t_Handle h_Ad,
     t_AdOfTypeContLookup *p_AdContLookup = (t_AdOfTypeContLookup *)h_Ad;
     t_Handle h_TmpAd;
     t_FmPcd *p_FmPcd = (t_FmPcd*)h_FmPcd;
-    uint32_t tmpReg32;
+    uint32_t tmpReg32, agingMask;
     t_Handle p_AdNewPtr = NULL;
 
     UNUSED(h_Manip);
@@ -350,6 +360,28 @@ static void FillAdOfTypeContLookup(t_Handle h_Ad,
     /* if (p_AdNewPtr = NULL) --> Done. (case (3)) */
     if (p_AdNewPtr)
     {
+#if (DPAA_VERSION >= 11)
+        if (p_Node->externalHash) {
+            tmpReg32 = 0;
+            tmpReg32 |= FM_PCD_AD_CONT_LOOKUP_TYPE;
+            if (p_Node->extHashInfo.allocateBuffer)
+                tmpReg32 |= FM_PCD_AD_FE_ENTER_ALLOCATE;
+            WRITE_UINT32(p_AdContLookup->ccAdBase, tmpReg32);
+
+            tmpReg32 = 0;
+            WRITE_UINT32(p_AdContLookup->matchTblPtr, tmpReg32);
+
+            tmpReg32 = 0;
+            tmpReg32 |= p_Node->parseCode;
+            WRITE_UINT32(p_AdContLookup->pcAndOffsets, tmpReg32);
+
+            tmpReg32 = 0;
+            tmpReg32 |=
+                    (uint32_t)(XX_VirtToPhys(p_Node->extHashInfo.p_FE) - p_FmPcd->physicalMuramBase);
+            WRITE_UINT32(p_AdContLookup->gmask, tmpReg32);
+
+        } else {
+#endif /* (DPAA_VERSION >= 11) */
         /* cases (1) & (2) */
         tmpReg32 = 0;
         tmpReg32 |= FM_PCD_AD_CONT_LOOKUP_TYPE;
@@ -375,8 +407,19 @@ static void FillAdOfTypeContLookup(t_Handle h_Ad,
         tmpReg32 |= p_Node->parseCode;
         WRITE_UINT32(p_AdContLookup->pcAndOffsets, tmpReg32);
 
-        MemCpy8((void*)&p_AdContLookup->gmask, p_Node->p_GlblMask,
-                    CC_GLBL_MASK_SIZE);
+            if (p_Node->agingSupport)
+            {
+                /* Building a mask of 1-s for all node's keys */
+                agingMask = CC_BUILD_AGING_MASK(p_Node->numOfKeys);
+                memcpy((void*)&p_AdContLookup->gmask, &agingMask,
+                            CC_AGING_MASK_SIZE);
+            }
+            else
+                MemCpy8((void*)&p_AdContLookup->gmask, p_Node->p_GlblMask,
+                            CC_GLBL_MASK_SIZE);
+#if (DPAA_VERSION >= 11)
+        }
+#endif /* (DPAA_VERSION >= 11) */
     }
 }
 
@@ -860,6 +903,7 @@ static t_Handle BuildNewAd(
     p_FmPcdCcNodeTmp->h_AdTable =
             p_FmPcdModifyCcKeyAdditionalParams->p_AdTableNew;
 
+    p_FmPcdCcNodeTmp->agingSupport = p_CcNode->agingSupport;
     p_FmPcdCcNodeTmp->lclMask = p_CcNode->lclMask;
     p_FmPcdCcNodeTmp->parseCode = p_CcNode->parseCode;
     p_FmPcdCcNodeTmp->offset = p_CcNode->offset;
@@ -907,7 +951,8 @@ static t_Handle BuildNewAd(
 static t_Error DynamicChangeHc(
         t_Handle h_FmPcd, t_List *h_OldPointersLst, t_List *h_NewPointersLst,
         t_FmPcdModifyCcKeyAdditionalParams *p_AdditionalParams,
-        bool useShadowStructs)
+        bool useShadowStructs,
+        e_ModifyState modifyState)
 {
     t_List *p_PosOld, *p_PosNew;
     uint32_t oldAdAddrOffset, newAdAddrOffset;
@@ -952,7 +997,17 @@ static t_Error DynamicChangeHc(
             }
 
             /* Invoke host command to copy from new AD to old AD */
-            err = FmHcPcdCcDoDynamicChange(((t_FmPcd *)h_FmPcd)->h_Hc,
+	    display_pcd_cc_hc((t_FmPcd *)h_FmPcd, oldAdAddrOffset,
+			newAdAddrOffset);
+            if ((!p_AdditionalParams->tree) &&
+                    (((t_FmPcdCcNode *)(p_AdditionalParams->h_CurrentNode))->agingSupport))
+                err = FmHcPcdCcDoDynamicChangeWithAging(((t_FmPcd *)h_FmPcd)->h_Hc,
+                        oldAdAddrOffset,
+                        newAdAddrOffset,
+                        modifyState,
+                        p_AdditionalParams->savedKeyIndex);
+            else
+                err = FmHcPcdCcDoDynamicChange(((t_FmPcd *)h_FmPcd)->h_Hc,
                                            oldAdAddrOffset, newAdAddrOffset);
             if (err)
             {
@@ -1000,7 +1055,8 @@ static t_Error DoDynamicChange(
 
         /* Invoke host-command to copy from the new Ad to existing Ads */
         err = DynamicChangeHc(h_FmPcd, h_OldPointersLst, h_NewPointersLst,
-                              p_AdditionalParams, useShadowStructs);
+                              p_AdditionalParams, useShadowStructs,
+                              p_AdditionalParams->modifyState);
         if (err)
             RETURN_ERROR(MAJOR, err, NO_MSG);
 
@@ -1039,7 +1095,8 @@ static t_Error DoDynamicChange(
 
 			/* HC to copy from the new Ad (old updated structures) to current Ad (uses shadow structures) */
 			err = DynamicChangeHc(h_FmPcd, h_OldPointersLst, h_NewPointersLst,
-								  p_AdditionalParams, useShadowStructs);
+                                  p_AdditionalParams, useShadowStructs,
+                                  e_MODIFY_STATE_CHANGE);
 			if (err)
 				RETURN_ERROR(MAJOR, err, NO_MSG);
 		}
@@ -1077,6 +1134,7 @@ static bool IsCapwapApplSpecific(t_Handle h_Node)
 }
 #endif /* FM_CAPWAP_SUPPORT */
 
+#ifndef USE_ENHANCED_EHASH
 static t_Error CcUpdateParam(
         t_Handle h_FmPcd, t_Handle h_PcdParams, t_Handle h_FmPort,
         t_FmPcdCcKeyAndNextEngineParams *p_CcKeyAndNextEngineParams,
@@ -1090,6 +1148,9 @@ static t_Error CcUpdateParam(
     t_FmPcdCcTree *p_CcTree = (t_FmPcdCcTree *)h_FmTree;
 
     level++;
+
+    printk("%s::p_CcKeyAndNextEngineParams %p, numOfEntries %d\n", __FUNCTION__,
+			p_CcKeyAndNextEngineParams, numOfEntries);
 
     if (p_CcTree->h_IpReassemblyManip)
     {
@@ -1118,13 +1179,22 @@ static t_Error CcUpdateParam(
             else
                 h_Ad = PTR_MOVE(h_Ad, FM_PCD_CC_AD_ENTRY_SIZE);
 
+	    printk("%s::.nextEngineParams %p\n", __FUNCTION__,
+			&p_CcKeyAndNextEngineParams[i].nextEngineParams);
             if (p_CcKeyAndNextEngineParams[i].nextEngineParams.nextEngine
                     == e_FM_PCD_CC)
             {
                 p_CcNode =
                         p_CcKeyAndNextEngineParams[i].nextEngineParams.params.ccParams.h_CcNode;
+		printk("%s::next engine is CC, node %p\n", __FUNCTION__, p_CcNode);
                 ASSERT_COND(p_CcNode);
 
+#if (DPAA_VERSION >= 11)
+		printk("%s::p_CcNode->externalHash %d\n", __FUNCTION__,
+				p_CcNode->externalHash);
+                if (p_CcNode->externalHash)
+                    FmPortSetFESupport(h_FmPort);
+#endif /* (DPAA_VERSION >= 11) */
                 if (p_CcKeyAndNextEngineParams[i].nextEngineParams.h_Manip)
                 {
                     err =
@@ -1153,6 +1223,9 @@ static t_Error CcUpdateParam(
             }
             else
             {
+		printk("%s::next engine is %d, h_manip %p\n", __FUNCTION__,		
+			p_CcKeyAndNextEngineParams[i].nextEngineParams.nextEngine,
+                	p_CcKeyAndNextEngineParams[i].nextEngineParams.h_Manip);
                 if (p_CcKeyAndNextEngineParams[i].nextEngineParams.h_Manip)
                 {
                     err =
@@ -1171,6 +1244,20 @@ static t_Error CcUpdateParam(
 
     return E_OK;
 }
+#else
+static t_Error CcUpdateParam(
+        t_Handle h_FmPcd, t_Handle h_PcdParams, t_Handle h_FmPort,
+        t_FmPcdCcKeyAndNextEngineParams *p_CcKeyAndNextEngineParams,
+        uint16_t numOfEntries, t_Handle h_Ad, bool validate, uint16_t level,
+        t_Handle h_FmTree, bool modify)
+{
+#if (DPAA_VERSION >= 11)
+  //  FmPortSetFESupport(h_FmPort);
+    return E_OK;
+#endif /* (DPAA_VERSION >= 11) */
+
+}
+#endif
 
 static ccPrivateInfo_t IcDefineCode(t_FmPcdCcNodeParams *p_CcNodeParam)
 {
@@ -1271,6 +1358,13 @@ static void DeleteNode(t_FmPcdCcNode *p_CcNode)
         p_CcNode->h_TmpAd = NULL;
     }
 
+    if (p_CcNode->h_TmpAd)
+    {
+        FM_MURAM_FreeMem(FmPcdGetMuramHandle(p_CcNode->h_FmPcd),
+                         p_CcNode->h_TmpAd);
+        p_CcNode->h_TmpAd = NULL;
+    }
+
     if (p_CcNode->h_StatsFLRs)
     {
         FM_MURAM_FreeMem(FmPcdGetMuramHandle(p_CcNode->h_FmPcd),
@@ -1286,7 +1380,8 @@ static void DeleteNode(t_FmPcdCcNode *p_CcNode)
 
     /* Restore the original counters pointer instead of the mutual pointer (mutual to all hash buckets) */
     if (p_CcNode->isHashBucket
-            && (p_CcNode->statisticsMode != e_FM_PCD_CC_STATS_MODE_NONE))
+            && (p_CcNode->statisticsMode != e_FM_PCD_CC_STATS_MODE_NONE) &&
+            p_CcNode->keyAndNextEngineParams[p_CcNode->numOfKeys].p_StatsObj)
         p_CcNode->keyAndNextEngineParams[p_CcNode->numOfKeys].p_StatsObj->h_StatsCounters =
                 p_CcNode->h_PrivMissStatsCounters;
 
@@ -1644,14 +1739,18 @@ t_Error ValidateNextEngineParams(
             if (relativeSchemeId == FM_PCD_KG_NUM_OF_SCHEMES)
                 RETURN_ERROR(MAJOR, E_NOT_IN_RANGE, NO_MSG);
             if (!FmPcdKgIsSchemeValidSw(
-                    p_FmPcdCcNextEngineParams->params.kgParams.h_DirectScheme))
+                    p_FmPcdCcNextEngineParams->params.kgParams.h_DirectScheme)) 
                 RETURN_ERROR(MAJOR, E_INVALID_STATE,
                              ("not valid schemeIndex in KG next engine param"));
+	    
+#if 0
+	    //we need to allow any scheme to be part of the KG next engine param
             if (!KgIsSchemeAlwaysDirect(h_FmPcd, relativeSchemeId))
                 RETURN_ERROR(
                         MAJOR,
                         E_INVALID_STATE,
                         ("CC Node may point only to a scheme that is always direct."));
+#endif
             break;
 
         case (e_FM_PCD_PLCR):
@@ -1705,7 +1804,8 @@ t_Error ValidateNextEngineParams(
 static uint8_t GetGenParseCode(e_FmPcdExtractFrom src,
                                uint32_t offset, bool glblMask,
                                uint8_t *parseArrayOffset, bool fromIc,
-                               ccPrivateInfo_t icCode)
+                               ccPrivateInfo_t icCode,
+                               bool aging)
 {
     if (!fromIc)
     {
@@ -1735,7 +1835,10 @@ static uint8_t GetGenParseCode(e_FmPcdExtractFrom src,
         {
             case (CC_PRIVATE_INFO_IC_KEY_EXACT_MATCH):
                 *parseArrayOffset = 0x50;
-                return CC_PC_GENERIC_IC_GMASK;
+                if (aging)
+                    return CC_PC_GENERIC_IC_AGING_MASK;
+                else
+                    return CC_PC_GENERIC_IC_GMASK;
 
             case (CC_PRIVATE_INFO_IC_HASH_EXACT_MATCH):
                 *parseArrayOffset = 0x48;
@@ -3522,6 +3625,7 @@ static t_FmPcdModifyCcKeyAdditionalParams * ModifyNodeCommonPart(
 
     p_FmPcdModifyCcKeyAdditionalParams->h_CurrentNode = h_FmPcdCcNodeOrTree;
     p_FmPcdModifyCcKeyAdditionalParams->savedKeyIndex = keyIndex;
+    p_FmPcdModifyCcKeyAdditionalParams->modifyState = modifyState;
 
     while (i < numOfKeys)
     {
@@ -4124,6 +4228,7 @@ static t_Error ModifyNextEngineParamNode(
         RETURN_ERROR(MAJOR, err, NO_MSG);
     }
 
+    display_cc_node(p_CcNode, __FUNCTION__);
     err = DoDynamicChange(p_FmPcd, &h_OldPointersLst, &h_NewPointersLst,
                           p_ModifyKeyParams, FALSE);
 
@@ -4555,7 +4660,7 @@ static t_Error MatchTableSet(t_Handle h_FmPcd, t_FmPcdCcNode *p_CcNode,
             p_CcNode->parseCode = GetGenParseCode(
                     p_CcNodeParam->extractCcParams.extractNonHdr.src,
                     p_CcNode->offset, glblMask, &p_CcNode->prsArrayOffset,
-                    fromIc, icCode);
+                    fromIc, icCode, p_CcNode->agingSupport);
 
             if (p_CcNode->parseCode == CC_PC_GENERIC_IC_HASH_INDEXED)
             {
@@ -4569,6 +4674,7 @@ static t_Error MatchTableSet(t_Handle h_FmPcd, t_FmPcdCcNode *p_CcNode,
                 }
             }
             if ((p_CcNode->parseCode == CC_PC_GENERIC_IC_GMASK)
+                    || (p_CcNode->parseCode == CC_PC_GENERIC_IC_AGING_MASK)
                     || (p_CcNode->parseCode == CC_PC_GENERIC_IC_HASH_INDEXED))
             {
                 p_CcNode->offset += p_CcNode->prsArrayOffset;
@@ -4598,6 +4704,9 @@ static t_Error MatchTableSet(t_Handle h_FmPcd, t_FmPcdCcNode *p_CcNode,
     if (p_CcNodeParam->keysParams.keySize != p_CcNode->sizeOfExtraction)
     {
         DeleteNode(p_CcNode);
+	printk("keySize %d, sizeOfExtraction %d\n",
+		p_CcNodeParam->keysParams.keySize,  
+		p_CcNode->sizeOfExtraction);
         RETURN_ERROR(MAJOR, E_INVALID_VALUE,
                      ("keySize has to be equal to sizeOfExtraction"));
     }
@@ -5422,6 +5531,7 @@ t_Error FmPcdCcRemoveKey(t_Handle h_FmPcd, t_Handle h_FmPcdCcNode,
         RETURN_ERROR(MAJOR, err, NO_MSG);
     }
 
+    display_cc_node(p_CcNode, __FUNCTION__);
     err = DoDynamicChange(p_FmPcd, &h_OldPointersLst, &h_NewPointersLst,
                           p_ModifyKeyParams, useShadowStructs);
 
@@ -5513,6 +5623,7 @@ t_Error FmPcdCcModifyKey(t_Handle h_FmPcd, t_Handle h_FmPcdCcNode,
         RETURN_ERROR(MAJOR, err, NO_MSG);
     }
 
+    display_cc_node(p_CcNode, __FUNCTION__);
     err = DoDynamicChange(p_FmPcd, &h_OldPointersLst, &h_NewPointersLst,
                           p_ModifyKeyParams, useShadowStructs);
 
@@ -5570,6 +5681,7 @@ t_Error FmPcdCcModifyMissNextEngineParamNode(
         RETURN_ERROR(MAJOR, err, NO_MSG);
     }
 
+    display_cc_node(p_CcNode, __FUNCTION__);
     err = DoDynamicChange(p_FmPcd, &h_OldPointersLst, &h_NewPointersLst,
                           p_ModifyKeyParams, FALSE);
 
@@ -5679,6 +5791,7 @@ t_Error FmPcdCcAddKey(t_Handle h_FmPcd, t_Handle h_FmPcdCcNode,
         RETURN_ERROR(MAJOR, err, NO_MSG);
     }
 
+    display_cc_node(p_CcNode, __FUNCTION__);
     err = DoDynamicChange(p_FmPcd, &h_OldPointersLst, &h_NewPointersLst,
                           p_ModifyKeyParams, useShadowStructs);
     if (p_CcNode->maxNumOfKeys)
@@ -5772,6 +5885,7 @@ t_Error FmPcdCcModifyKeyAndNextEngine(t_Handle h_FmPcd, t_Handle h_FmPcdCcNode,
         RETURN_ERROR(MAJOR, err, NO_MSG);
     }
 
+    display_cc_node(p_CcNode, __FUNCTION__);
     err = DoDynamicChange(p_FmPcd, &h_OldPointersLst, &h_NewPointersLst,
                           p_ModifyKeyParams, useShadowStructs);
 
@@ -6025,6 +6139,143 @@ void FmPcdCcGetAdTablesThatPointOnReplicGroup(t_Handle h_Node,
 /****************************************/
 /*       API Init unit functions        */
 /****************************************/
+#ifdef USE_ENHANCED_EHASH 
+
+#ifndef EXCLUDE_FMAN_IPR_OFFLOAD
+void set_reassembly_tds(void *handle, uint32_t ipv4_off, uint32_t ipv6_off)
+{
+	struct en_exthash_info *info;
+	struct en_exthash_node *ptr, *ccptr;
+
+	info = (struct en_exthash_info *)handle;
+	ptr = (struct en_exthash_node  *)&info->node;
+	ccptr = info->h_Ad;
+	ptr->ipv4_ad_offset = ipv4_off;
+	ptr->word_2 |= (ipv6_off << 24);
+	WRITE_UINT32(ccptr->word_0, ptr->word_0);
+	WRITE_UINT32(ccptr->word_2, ptr->word_2);
+#ifdef FM_EHASH_DEBUG
+	{
+		uint32_t ii;
+		uint8_t *ptr;
+		ptr = (uint8_t *)ccptr;
+		printk("%s::handle %p Ad %p ccptr %pi v4off %x, v6off %x\n", __F
+				UNCTION__,
+				handle, ptr, ccptr, ipv4_off, ipv6_off);
+		for (ii = 0; ii < 16; ii++)
+			printk("%02x ", *(ptr + ii));
+		printk("\n");
+	}
+#endif
+}
+uint32_t copy_td_to_ccbase(void *handle, t_Handle p_CcTreeTmp, uint32_t *node)
+{
+	struct en_exthash_info *info;
+	struct en_exthash_node *ptr, *ccptr;
+	t_FmPcd *p_FmPcd;
+	uint32_t ii;
+
+	info = (struct en_exthash_info *)handle;
+	ptr = (struct en_exthash_node  *)&info->node;
+	ccptr = (struct en_exthash_node  *)p_CcTreeTmp;
+	WRITE_UINT32(ccptr->word_1, ptr->word_1);
+	WRITE_UINT32(ccptr->table_base_lo, ptr->table_base_lo);
+	WRITE_UINT32(ccptr->word_2,  ptr->word_2);
+	WRITE_UINT32(ccptr->word_0, ptr->word_0);
+#ifdef FM_EHASH_DEBUG
+	{
+		uint8_t *ptr;
+
+		printk("%s::handle %p Ad %p ccptr %p\n", __FUNCTION__,
+			 handle, ptr, p_CcTreeTmp);
+		ptr = (uint8_t *)ccptr;
+		for (ii = 0; ii < 16; ii++)
+			printk("%02x ", *(ptr + ii));
+		printk("\n");
+	}
+#endif
+	//save muram addr for AD in the tree 
+	info->h_Ad = ccptr;
+	p_FmPcd = info->pcd;
+	ii = (uint32_t)(XX_VirtToPhys(p_CcTreeTmp) - 
+			p_FmPcd->physicalMuramBase);
+	*node = ii;
+#ifdef FM_EHASH_DEBUG
+	if (info->ip_reassem_info) 
+	{
+		if (info->ip_reassem_info) { 
+			printk("%s::AD for reassembly %p %x\n",
+				__FUNCTION__, ccptr, ii);
+		} else {
+			printk("%s::AD for non-reassembly %p %x\n",
+				__FUNCTION__, ccptr, ii);
+		}
+		display_ehashtbl_info(info, __FUNCTION__);
+	}
+#endif
+	//return type
+	if (info->ip_reassem_info) 
+		return (info->ip_reassem_info->type);
+	return 0;
+}
+#else
+void copy_td_to_ccbase(void *handle, t_Handle p_CcTreeTmp)
+{
+	struct en_exthash_info *info;
+	struct en_exthash_node *ptr, *ccptr;
+
+	info = (struct en_exthash_info *)handle;
+	ptr = (struct en_exthash_node  *)&info->node;
+	ccptr = (struct en_exthash_node  *)p_CcTreeTmp;
+	WRITE_UINT32(ccptr->word_1, ptr->word_1);
+	WRITE_UINT32(ccptr->table_base_lo, ptr->table_base_lo);
+	WRITE_UINT32(ccptr->word_2,  ptr->word_2);
+	WRITE_UINT32(ccptr->word_0, ptr->word_0);
+#ifdef FM_EHASH_DEBUG
+	{
+		uint32_t ii;
+		uint8_t *ptr;
+
+		printk("%s::handle %p Ad %p ccptr %p\n", __FUNCTION__,
+			 handle, ptr, p_CcTreeTmp);
+		ptr = (uint8_t *)ccptr;
+		for (ii = 0; ii < 16; ii++)
+			printk("%02x ", *(ptr + ii));
+		printk("\n");
+	}
+#endif
+	//save muram addr for AD in the tree 
+	info->h_Ad = ccptr;
+
+#ifndef EXCLUDE_FMAN_IPR_OFFLOAD
+	{
+		uint32_t ii;
+		t_FmPcd *p_FmPcd;
+		p_FmPcd = info->pcd;
+		ii = (uint32_t)(XX_VirtToPhys(p_CcTreeTmp) - 
+			p_FmPcd->physicalMuramBase);
+#ifdef FM_EHASH_DEBUG
+		if (info->ip_reassem_info) 
+		{
+			if (info->ip_reassem_info) { 
+				printk("%s::AD for reassembly %p %x\n",
+					__FUNCTION__, ccptr, ii);
+			} else {
+				printk("%s::AD for non-reassembly %p %x\n",
+					__FUNCTION__, ccptr, ii);
+			}
+			display_ehashtbl_info(info, __FUNCTION__);
+		}
+	}
+#endif
+	//return type
+	if (info->ip_reassem_info) 
+		return (info->ip_reassem_info->type);
+#endif
+	return 0;
+}
+#endif
+#endif //USE_ENHANCED_EHASH
 
 t_Handle FM_PCD_CcRootBuild(t_Handle h_FmPcd,
                             t_FmPcdCcTreeParams *p_PcdGroupsParam)
@@ -6040,8 +6291,14 @@ t_Handle FM_PCD_CcRootBuild(t_Handle h_FmPcd,
     t_NetEnvParams netEnvParams;
     uint8_t lastOne = 0;
     uint32_t requiredAction = 0;
+#ifndef USE_ENHANCED_EHASH 
     t_FmPcdCcNode *p_FmPcdCcNextNode;
     t_CcNodeInformation ccNodeInfo, *p_CcInformation;
+#endif 
+#ifndef EXCLUDE_FMAN_IPR_OFFLOAD
+	uint32_t ipv4_reassly_offset;
+	uint32_t ipv6_reassly_offset;
+#endif
 
     SANITY_CHECK_RETURN_VALUE(h_FmPcd, E_INVALID_HANDLE, NULL);
     SANITY_CHECK_RETURN_VALUE(p_PcdGroupsParam, E_INVALID_HANDLE, NULL);
@@ -6092,6 +6349,7 @@ t_Handle FM_PCD_CcRootBuild(t_Handle h_FmPcd,
     numOfEntries = 0;
     p_FmPcdCcTree->netEnvId = FmPcdGetNetEnvId(p_PcdGroupsParam->h_NetEnv);
 
+    //printk("%s::num groups %d\n", __FUNCTION__, p_PcdGroupsParam->numOfGrps);
     for (i = 0; i < p_PcdGroupsParam->numOfGrps; i++)
     {
         p_FmPcdCcGroupParams = &p_PcdGroupsParam->ccGrpParams[i];
@@ -6204,6 +6462,7 @@ t_Handle FM_PCD_CcRootBuild(t_Handle h_FmPcd,
             k++;
         }
     }
+    //printk("%s::num entries %d\n", __FUNCTION__, numOfEntries);
 
     p_FmPcdCcTree->numOfEntries = (uint8_t)k;
     p_FmPcdCcTree->numOfGrps = p_PcdGroupsParam->numOfGrps;
@@ -6224,7 +6483,15 @@ t_Handle FM_PCD_CcRootBuild(t_Handle h_FmPcd,
             (uint32_t)(FM_PCD_MAX_NUM_OF_CC_GROUPS * FM_PCD_CC_AD_ENTRY_SIZE));
 
     p_CcTreeTmp = UINT_TO_PTR(p_FmPcdCcTree->ccTreeBaseAddr);
+#ifdef FM_EHASH_DEBUG
+    printk("%s::cctree root %p baseaddr %p numentries %d\n", __FUNCTION__,
+		p_CcTreeTmp, (void *)p_FmPcdCcTree->ccTreeBaseAddr, numOfEntries);
 
+    printk("%s::cctree root %p baseaddr %p numentries %d muram %x\n", __FUNCTION__,
+	          p_CcTreeTmp, (void *)p_FmPcdCcTree->ccTreeBaseAddr, numOfEntries,
+                (uint32_t)(XX_VirtToPhys(p_FmPcdCcTree->ccTreeBaseAddr) - p_FmPcd->physicalMuramBase)); 
+#endif
+#ifndef USE_ENHANCED_EHASH //jyos following code is crashing in case of EHASH
     for (i = 0; i < numOfEntries; i++)
     {
         p_KeyAndNextEngineParams = p_Params + i;
@@ -6260,10 +6527,175 @@ t_Handle FM_PCD_CcRootBuild(t_Handle h_FmPcd,
                 p_CcInformation->index++;
         }
     }
+#else
+    for (i = 0; i < numOfEntries; i++) {
+	struct t_FmPcdCcNextEngineParams *nexteng;
+	
+        p_KeyAndNextEngineParams = p_Params + i;
+	memcpy(&p_FmPcdCcTree->keyAndNextEngineParams[i],
+               p_KeyAndNextEngineParams,
+               sizeof(t_FmPcdCcKeyAndNextEngineParams));
+	nexteng = &p_FmPcdCcTree->keyAndNextEngineParams[i].nextEngineParams;
 
+	if (nexteng->nextEngine == e_FM_PCD_CC)
+	{
+		
+        	t_FmPcdCcNextCcParams *ccParams;       /**< Parameters in case next engine is CC */
+		ccParams = &nexteng->params.ccParams;
+		//printk("e_FM_PCD_CC ccnode handle %p\n", (void *)ccParams->h_CcNode);
+#ifdef EXCLUDE_FMAN_IPR_OFFLOAD
+		copy_td_to_ccbase(ccParams->h_CcNode, p_CcTreeTmp);
+#else
+		{
+			uint32_t node;
+			uint32_t type;
+			type = copy_td_to_ccbase(ccParams->h_CcNode, p_CcTreeTmp, &node);
+#ifdef FM_EHASH_DEBUG
+			printk("e_FM_PCD_CC ccnode handle %p type %d\n", (void *)ccParams->h_CcNode,
+				type);
+#endif
+			switch (type) {
+				case IPV4_REASSM_TABLE:
+					ipv4_reassly_offset = (node & 0xff);
+#ifdef FM_EHASH_DEBUG
+					printk("%s::ipv4_reassly_offset %x\n",
+						__FUNCTION__,
+						ipv4_reassly_offset);
+#endif
+					break;
+				case IPV6_REASSM_TABLE:
+					ipv6_reassly_offset = (node & 0xff);
+#ifdef FM_EHASH_DEBUG
+					printk("%s::ipv6_reassly_offset %x\n",
+						__FUNCTION__,
+						ipv6_reassly_offset);
+#endif
+					break;
+				default:
+					break;
+			}
+		}	
+#endif
+	}
+        p_CcTreeTmp = PTR_MOVE(p_CcTreeTmp, FM_PCD_CC_AD_ENTRY_SIZE);
+#ifdef FM_EHASH_DEBUG
+	printk("%s::entry %d tree %p p_KeyAndNextEngineParams %p p_CcTreeTmp %p\n", __FUNCTION__, 
+		i, p_FmPcdCcTree, &p_FmPcdCcTree->keyAndNextEngineParams[i], p_CcTreeTmp); 
+	
+	printk("nextEngineParams %p requiredAction %08x\n", 
+		nexteng,
+		p_FmPcdCcTree->keyAndNextEngineParams[i].requiredAction);
+	printk("nextEngine %d, statisticsEn %d\n",
+		nexteng->nextEngine, nexteng->statisticsEn);
+	if (nexteng->nextEngine == e_FM_PCD_CC)	{
+		printk("h_CcNode %p\n", nexteng->params.ccParams.h_CcNode);
+	}
+#endif
+    }
+
+#ifndef EXCLUDE_FMAN_IPR_OFFLOAD	
+	//set table indices for ipv4 and ipv6 reassly in other ADs
+	for (i = 0; i < numOfEntries; i++) {
+	struct t_FmPcdCcNextEngineParams *nexteng;
+
+	nexteng = &p_FmPcdCcTree->keyAndNextEngineParams[i].nextEngineParams;
+	if (nexteng->nextEngine == e_FM_PCD_CC) {
+        	t_FmPcdCcNextCcParams *ccParams;       
+		struct en_exthash_info *info;
+        	
+		ccParams = &nexteng->params.ccParams;
+		info = (struct en_exthash_info *)ccParams->h_CcNode;
+		if (info->type != ETHERNET_TABLE)
+			set_reassembly_tds(ccParams->h_CcNode, ipv4_reassly_offset,
+				ipv6_reassly_offset);
+		else
+			set_reassembly_tds(ccParams->h_CcNode, 0xff, 0xff);
+	}
+	}
+#endif
+    for (i = 0; i < numOfEntries; i++)
+    {
+	struct t_FmPcdCcNextEngineParams *nexteng;
+
+        p_KeyAndNextEngineParams = 
+		&p_FmPcdCcTree->keyAndNextEngineParams[i];
+	nexteng = &p_KeyAndNextEngineParams->nextEngineParams;
+	switch(nexteng->nextEngine) {
+		case e_FM_PCD_DONE:
+			{
+        			t_FmPcdCcNextEnqueueParams *enqueueParams;  /**< Parameters in case next engine is BMI */
+				printk("e_FM_PCD_DONE\n");
+				enqueueParams = &nexteng->params.enqueueParams;
+				printk("action %d, overrideFqid %d, newFqid %x(%d), storageid %d\n", 
+					enqueueParams->action,
+					enqueueParams->overrideFqid,
+					enqueueParams->newFqid,
+					enqueueParams->newFqid,
+					enqueueParams->newRelativeStorageProfileId);
+			}
+			break;
+    		case e_FM_PCD_KG:
+			{
+        			t_FmPcdCcNextKgParams *kgParams;       /**< Parameters in case next engine is KG */
+				printk("e_FM_PCD_KG\n");
+				kgParams = &nexteng->params.kgParams;
+				printk("overrideFqid %d, newFqid %x(%d), storageid %d directschhandle %d\n", 
+					kgParams->overrideFqid,
+					kgParams->newFqid,
+					kgParams->newFqid,
+					kgParams->newRelativeStorageProfileId,
+					kgParams->h_DirectScheme);
+			}
+			break;
+    		case e_FM_PCD_CC:
+			{
+        			t_FmPcdCcNextCcParams *ccParams;       /**< Parameters in case next engine is CC */
+				ccParams = &nexteng->params.ccParams;
+				//printk("e_FM_PCD_CC ccnode handle %p\n", (void *)ccParams->h_CcNode);
+				//display_ehashtbl_info(ccParams->h_CcNode, __FUNCTION__);
+			}
+			break;
+    		case e_FM_PCD_PLCR:
+			{
+        			t_FmPcdCcNextPlcrParams *plcrParams;     /**< Parameters in case next engine is PLCR */
+				printk("e_FM_PCD_PLCR\n");
+				plcrParams = &nexteng->params.plcrParams;
+				printk("overrideParams %d, sharedProfile %d, newRelativeProfileId %d, newfqid %x(%d)"
+					"storageid %d\n",
+       		                        plcrParams->overrideParams,
+       		                        plcrParams->sharedProfile,
+                                	plcrParams->newRelativeProfileId,
+                                	plcrParams->newFqid,
+                                	plcrParams->newFqid,
+                                	plcrParams->newRelativeStorageProfileId);
+			}
+			break;
+    		case e_FM_PCD_PRS:
+			printk("e_FM_PCD_PRS\n");
+			break;
+#if (DPAA_VERSION >= 11)
+		case e_FM_PCD_FR: 
+			{
+        			t_FmPcdCcNextFrParams *frParams;       /**< Parameters in case next engine is FR */
+				printk("e_FM_PCD_FR\n");
+				frParams = &nexteng->params.frParams;
+				printk("frhandle handle %d\n", frParams->h_FrmReplic);
+			}
+			break;
+#endif /* (DPAA_VERSION >= 11) */
+		case e_FM_PCD_HASH:
+			printk("e_FM_PCD_HASH\n");
+			break;
+		default:
+			printk("next engine %d\n", nexteng->nextEngine);
+			
+	}
+    }
+#endif
     FmPcdIncNetEnvOwners(h_FmPcd, p_FmPcdCcTree->netEnvId);
     p_CcTreeTmp = UINT_TO_PTR(p_FmPcdCcTree->ccTreeBaseAddr);
 
+#ifndef USE_ENHANCED_EHASH  // jyos following code is crashing in case of EHASH
     if (!FmPcdLockTryLockAll(p_FmPcd))
     {
         FM_PCD_CcRootDelete(p_FmPcdCcTree);
@@ -6294,6 +6726,7 @@ t_Handle FM_PCD_CcRootBuild(t_Handle h_FmPcd,
     }
 
     FmPcdLockUnlockAll(p_FmPcd);
+#endif
     p_FmPcdCcTree->p_Lock = FmPcdAcquireLock(p_FmPcd);
     if (!p_FmPcdCcTree->p_Lock)
     {
@@ -7147,15 +7580,24 @@ t_Error FM_PCD_MatchTableGetIndexedHashBucket(t_Handle h_CcNode,
 
 t_Handle FM_PCD_HashTableSet(t_Handle h_FmPcd, t_FmPcdHashTableParams *p_Param)
 {
-    t_FmPcdCcNode *p_CcNodeHashTbl;
-    t_FmPcdCcNodeParams *p_IndxHashCcNodeParam, *p_ExactMatchCcNodeParam;
-    t_FmPcdCcNode *p_CcNode;
-    t_Handle h_MissStatsCounters = NULL;
-    t_FmPcdCcKeyParams *p_HashKeyParams;
-    int i;
-    uint16_t numOfSets, numOfWays, countMask, onesCount = 0;
-    bool statsEnForMiss = FALSE;
-    t_Error err;
+    /* ASK-6.6 fix: restore the local variable declarations that were
+     * stripped when the USE_ENHANCED_EHASH / external-hash code paths
+     * were excised from this translation unit. All variables below are
+     * used unconditionally by the function body.
+     */
+    t_FmPcdCcNodeParams         *p_ExactMatchCcNodeParam = NULL;
+    t_FmPcdCcNodeParams         *p_IndxHashCcNodeParam   = NULL;
+    t_FmPcdCcNode               *p_CcNode                = NULL;
+    t_FmPcdCcNode               *p_CcNodeHashTbl         = NULL;
+    t_FmPcdCcKeyParams          *p_HashKeyParams         = NULL;
+    t_Handle                     h_MissStatsCounters     = NULL;
+    uint16_t                     countMask               = 0;
+    uint16_t                     numOfSets               = 0;
+    uint16_t                     numOfWays               = 0;
+    uint8_t                      onesCount               = 0;
+    int                          i                       = 0;
+    bool                         statsEnForMiss          = FALSE;
+    t_Error                      err                     = E_OK;
 
     SANITY_CHECK_RETURN_VALUE(h_FmPcd, E_INVALID_HANDLE, NULL);
     SANITY_CHECK_RETURN_VALUE(p_Param, E_NULL_POINTER, NULL);
@@ -7402,124 +7844,48 @@ t_Error FM_PCD_HashTableAddKey(t_Handle h_HashTbl, uint8_t keySize,
         RETURN_ERROR(MAJOR, E_INVALID_VALUE,
                      ("Keys masks not supported for hash table"));
 
-    err = FM_PCD_MatchTableGetIndexedHashBucket(p_HashTbl, keySize,
-                                                p_KeyParams->p_Key,
-                                                p_HashTbl->kgHashShift,
-                                                &h_HashBucket, &bucketIndex,
-                                                &lastIndex);
-    if (err)
-        RETURN_ERROR(MAJOR, err, NO_MSG);
-
-    return FM_PCD_MatchTableAddKey(h_HashBucket, FM_PCD_LAST_KEY_INDEX, keySize,
-                                   p_KeyParams);
+#ifndef USE_ENHANCED_EHASH
+    return InternalHashTableAddKey(h_HashTbl, keySize, p_KeyParams);
+#else
+    return ExternalHashTableAddKey(h_HashTbl, keySize, p_KeyParams);
+#endif // USE_ENHANCED_EHASH
 }
 
+#ifndef USE_ENHANCED_EHASH
 t_Error FM_PCD_HashTableRemoveKey(t_Handle h_HashTbl, uint8_t keySize,
                                   uint8_t *p_Key)
 {
-    t_FmPcdCcNode *p_HashTbl = (t_FmPcdCcNode *)h_HashTbl;
-    t_Handle h_HashBucket;
-    uint8_t bucketIndex;
-    uint16_t lastIndex;
-    t_Error err;
-
-    SANITY_CHECK_RETURN_ERROR(p_HashTbl, E_INVALID_HANDLE);
+    SANITY_CHECK_RETURN_ERROR(h_HashTbl, E_INVALID_HANDLE);
     SANITY_CHECK_RETURN_ERROR(p_Key, E_NULL_POINTER);
 
-    err = FM_PCD_MatchTableGetIndexedHashBucket(p_HashTbl, keySize, p_Key,
-                                                p_HashTbl->kgHashShift,
-                                                &h_HashBucket, &bucketIndex,
-                                                &lastIndex);
-    if (err)
-        RETURN_ERROR(MAJOR, err, NO_MSG);
-
-    return FM_PCD_MatchTableFindNRemoveKey(h_HashBucket, keySize, p_Key, NULL);
+    return InternalHashTableRemoveKey(h_HashTbl, keySize, p_Key);
 }
 
 t_Error FM_PCD_HashTableModifyNextEngine(
         t_Handle h_HashTbl, uint8_t keySize, uint8_t *p_Key,
         t_FmPcdCcNextEngineParams *p_FmPcdCcNextEngineParams)
 {
-    t_FmPcdCcNode *p_HashTbl = (t_FmPcdCcNode *)h_HashTbl;
-    t_Handle h_HashBucket;
-    uint8_t bucketIndex;
-    uint16_t lastIndex;
-    t_Error err;
-
-    SANITY_CHECK_RETURN_ERROR(p_HashTbl, E_INVALID_HANDLE);
+    SANITY_CHECK_RETURN_ERROR(h_HashTbl, E_INVALID_HANDLE);
     SANITY_CHECK_RETURN_ERROR(p_Key, E_NULL_POINTER);
     SANITY_CHECK_RETURN_ERROR(p_FmPcdCcNextEngineParams, E_NULL_POINTER);
 
-    err = FM_PCD_MatchTableGetIndexedHashBucket(p_HashTbl, keySize, p_Key,
-                                                p_HashTbl->kgHashShift,
-                                                &h_HashBucket, &bucketIndex,
-                                                &lastIndex);
-    if (err)
-        RETURN_ERROR(MAJOR, err, NO_MSG);
-
-    return FM_PCD_MatchTableFindNModifyNextEngine(h_HashBucket, keySize, p_Key,
-                                                  NULL,
-                                                  p_FmPcdCcNextEngineParams);
+    return InternalHashTableModifyNextEngine(h_HashTbl, keySize, p_Key, p_FmPcdCcNextEngineParams);
 }
+#endif // USE_ENHANCED_EHASH
 
 t_Error FM_PCD_HashTableModifyMissNextEngine(
         t_Handle h_HashTbl,
         t_FmPcdCcNextEngineParams *p_FmPcdCcNextEngineParams)
 {
-    t_FmPcdCcNode *p_HashTbl = (t_FmPcdCcNode *)h_HashTbl;
-    t_Handle h_HashBucket;
-    uint8_t i;
-    bool nullifyMissStats = FALSE;
-    t_Error err;
-
+#ifndef USE_ENHANCED_EHASH
     SANITY_CHECK_RETURN_ERROR(h_HashTbl, E_INVALID_HANDLE);
     SANITY_CHECK_RETURN_ERROR(p_FmPcdCcNextEngineParams, E_NULL_POINTER);
 
-    if ((!p_HashTbl->h_MissStatsCounters)
-            && (p_FmPcdCcNextEngineParams->statisticsEn))
-        RETURN_ERROR(
-                MAJOR,
-                E_CONFLICT,
-                ("Statistics are requested for a key, but statistics mode was set"
-                "to 'NONE' upon initialization"));
-
-    if (p_HashTbl->h_MissStatsCounters)
-    {
-        if ((!p_HashTbl->statsEnForMiss)
-                && (p_FmPcdCcNextEngineParams->statisticsEn))
-            nullifyMissStats = TRUE;
-
-        if ((p_HashTbl->statsEnForMiss)
-                && (!p_FmPcdCcNextEngineParams->statisticsEn))
-        {
-            p_HashTbl->statsEnForMiss = FALSE;
-            p_FmPcdCcNextEngineParams->statisticsEn = TRUE;
-        }
-    }
-
-    for (i = 0; i < p_HashTbl->numOfKeys; i++)
-    {
-        h_HashBucket =
-                p_HashTbl->keyAndNextEngineParams[i].nextEngineParams.params.ccParams.h_CcNode;
-
-        err = FM_PCD_MatchTableModifyMissNextEngine(h_HashBucket,
-                                                    p_FmPcdCcNextEngineParams);
-        if (err)
-            RETURN_ERROR(MAJOR, err, NO_MSG);
-    }
-
-    if (nullifyMissStats)
-    {
-        memset(p_HashTbl->h_MissStatsCounters, 0,
-               (2 * FM_PCD_CC_STATS_COUNTER_SIZE));
-        memset(p_HashTbl->h_MissStatsCounters, 0,
-               (2 * FM_PCD_CC_STATS_COUNTER_SIZE));
-        p_HashTbl->statsEnForMiss = TRUE;
-    }
-
-    return E_OK;
+    return InternalHashTableModifyMissNextEngine(h_HashTbl, p_FmPcdCcNextEngineParams);
+#else
+    return ExternalHashTableModifyMissNextEngine(h_HashTbl, p_FmPcdCcNextEngineParams);
+#endif
 }
-
 
 t_Error FM_PCD_HashTableGetMissNextEngine(
         t_Handle h_HashTbl,
@@ -7530,6 +7896,11 @@ t_Error FM_PCD_HashTableGetMissNextEngine(
 
     SANITY_CHECK_RETURN_ERROR(p_HashTbl, E_INVALID_HANDLE);
 
+#ifdef USE_ENHANCED_EHASH
+    if (p_HashTbl->externalHash)
+        return E_NOT_SUPPORTED;
+#endif /* USE_ENHANCED_EHASH */
+
     /* Miss next engine of each bucket was initialized with the next engine of the hash table */
     p_HashBucket =
             p_HashTbl->keyAndNextEngineParams[0].nextEngineParams.params.ccParams.h_CcNode;
@@ -7539,6 +7910,28 @@ t_Error FM_PCD_HashTableGetMissNextEngine(
            sizeof(t_FmPcdCcNextEngineParams));
 
     return E_OK;
+}
+
+t_Error FM_PCD_HashTableModifyMissMonitorAddr(
+        t_Handle h_HashTbl,
+        uintptr_t monitorAddr)
+{
+    /* ASK-6.6 fix: the external-hash helper
+     * ExternalHashTableModifyMissMonitorAddr() is defined in
+     * fm_ehash.c under EXCLUDE_FMAN_IPR_OFFLOAD-gated code that is not
+     * declared in any header visible to this TU. Since that code path
+     * is the only non-trivial branch of this wrapper, simply return
+     * E_NOT_SUPPORTED unconditionally — matching the behaviour of the
+     * internal-hash path and keeping the module build clean under
+     * -Werror=implicit-function-declaration.
+     */
+    UNUSED(h_HashTbl);
+    UNUSED(monitorAddr);
+
+    SANITY_CHECK_RETURN_ERROR(h_HashTbl, E_INVALID_HANDLE);
+    SANITY_CHECK_RETURN_ERROR(monitorAddr, E_NULL_POINTER);
+
+    return E_NOT_SUPPORTED;
 }
 
 t_Error FM_PCD_HashTableFindNGetKeyStatistics(
@@ -7555,8 +7948,13 @@ t_Error FM_PCD_HashTableFindNGetKeyStatistics(
     SANITY_CHECK_RETURN_ERROR(p_Key, E_NULL_POINTER);
     SANITY_CHECK_RETURN_ERROR(p_KeyStatistics, E_NULL_POINTER);
 
+#ifdef USE_ENHANCED_EHASH
+    if (p_HashTbl->externalHash)
+        return E_NOT_SUPPORTED;
+#endif /* USE_ENHANCED_EHASH */
+
     err = FM_PCD_MatchTableGetIndexedHashBucket(p_HashTbl, keySize, p_Key,
-                                                p_HashTbl->kgHashShift,
+                                                0,
                                                 &h_HashBucket, &bucketIndex,
                                                 &lastIndex);
     if (err)
@@ -7575,6 +7973,11 @@ t_Error FM_PCD_HashTableGetMissStatistics(
     SANITY_CHECK_RETURN_ERROR(p_HashTbl, E_INVALID_HANDLE);
     SANITY_CHECK_RETURN_ERROR(p_MissStatistics, E_NULL_POINTER);
 
+#ifdef USE_ENHANCED_EHASH
+    if (p_HashTbl->externalHash)
+        return E_NOT_SUPPORTED;
+#endif /* USE_ENHANCED_EHASH */
+
     if (!p_HashTbl->statsEnForMiss)
         RETURN_ERROR(MAJOR, E_INVALID_STATE,
                      ("Statistics were not enabled for miss"));
@@ -7584,3 +7987,240 @@ t_Error FM_PCD_HashTableGetMissStatistics(
 
     return FM_PCD_MatchTableGetMissStatistics(h_HashBucket, p_MissStatistics);
 }
+
+static t_Error GetAgingMask(t_Handle h_FmPcd,
+                            t_Handle h_FmPcdCcNode,
+                            uint16_t keyIndex,
+                            bool reset,
+                            uint32_t *p_Mask)
+{
+    t_FmPcd *p_FmPcd = (t_FmPcd *)h_FmPcd;
+    t_FmPcdCcNode *p_CcNode = (t_FmPcdCcNode *)h_FmPcdCcNode;
+    t_FmPcdCcNextEngineParams *p_NextEngineParams = NULL;
+    t_List h_NodesLst;
+    uint32_t newAgingMask, oldAgingMask, adAddrOffset;
+    t_AdOfTypeContLookup *p_AdContLookup;
+    t_Error err;
+
+    INIT_LIST(&h_NodesLst);
+
+    /* Building a list of all action descriptors that point to this node.
+       No sharing on AD with aging, so there should be only one parent. */
+    if (!LIST_IsEmpty(&p_CcNode->ccPrevNodesLst))
+        UpdateAdPtrOfNodesWhichPointsOnCrntMdfNode(p_CcNode, &h_NodesLst,
+                                                   &p_NextEngineParams);
+    ASSERT_COND(LIST_NumOfObjs(&h_NodesLst) == 1);
+
+    adAddrOffset = FmPcdCcGetNodeAddrOffsetFromNodeInfo(p_FmPcd, LIST_FIRST(&h_NodesLst));
+
+    if (reset)
+    {
+        if (keyIndex == FM_PCD_LAST_KEY_INDEX)
+            /* If no specific key index provided the entire aging mask will be reset */
+            newAgingMask = CC_BUILD_AGING_MASK(p_CcNode->numOfKeys);
+        else
+            /* Only the bit that corresponds to the provided index is reset,
+               other bits in the mask will be preserved */
+            newAgingMask = (0x80000000 >> keyIndex);
+
+        err = FmHcPcdCcResetAgingMask(p_FmPcd->h_Hc, adAddrOffset, newAgingMask, &oldAgingMask);
+        if (err)
+            RETURN_ERROR(MAJOR, err, NO_MSG);
+
+        *p_Mask = (oldAgingMask & newAgingMask);
+    }
+    else
+    {
+        p_AdContLookup = (t_AdOfTypeContLookup *)(PTR_MOVE(XX_PhysToVirt(p_FmPcd->physicalMuramBase), adAddrOffset));
+        *p_Mask = GET_UINT32(p_AdContLookup->gmask);
+    }
+
+    ReleaseLst(&h_NodesLst);
+
+    return E_OK;
+}
+
+t_Error FM_PCD_HashTableGetKeyAging(t_Handle h_HashTbl,
+                                    uint8_t *p_Key,
+                                    uint8_t keySize,
+                                    bool reset,
+                                    bool *p_KeyAging)
+{
+    t_FmPcdCcNode *p_HashTbl = (t_FmPcdCcNode *)h_HashTbl;
+    t_FmPcd *p_FmPcd;
+    t_Handle h_HashBucket;
+    uint8_t bucketIndex;
+    uint16_t lastIndex, keyIndex;
+    uint32_t agingMask, keyAgingBit;
+    t_Error err;
+
+    SANITY_CHECK_RETURN_ERROR(p_HashTbl, E_INVALID_HANDLE);
+    SANITY_CHECK_RETURN_ERROR(p_Key, E_NULL_POINTER);
+    SANITY_CHECK_RETURN_ERROR(p_KeyAging, E_NULL_POINTER);
+    p_FmPcd = (t_FmPcd *)p_HashTbl->h_FmPcd;
+    SANITY_CHECK_RETURN_ERROR(p_FmPcd, E_INVALID_HANDLE);
+    SANITY_CHECK_RETURN_ERROR(p_FmPcd->h_Hc, E_INVALID_HANDLE);
+
+#ifdef USE_ENHANCED_EHASH
+    if (p_HashTbl->externalHash)
+        return E_NOT_SUPPORTED;
+#endif /* USE_ENHANCED_EHASH */
+
+    err = FM_PCD_MatchTableGetIndexedHashBucket(p_HashTbl, keySize, p_Key,
+                                                0,
+                                                &h_HashBucket, &bucketIndex,
+                                                &lastIndex);
+    if (err)
+        RETURN_ERROR(MAJOR, err, NO_MSG);
+
+    if (!((t_FmPcdCcNode *)h_HashBucket)->agingSupport)
+        RETURN_ERROR(MAJOR, E_INVALID_STATE, ("Aging support was not enabled for this hash table"));
+
+    if (!FmPcdLockTryLockAll(p_FmPcd))
+    {
+        DBG(TRACE, ("FmPcdLockTryLockAll failed"));
+        return ERROR_CODE(E_BUSY);
+    }
+
+    err = FindKeyIndex(h_HashBucket, keySize, p_Key, NULL, &keyIndex);
+    if (GET_ERROR_TYPE(err) != E_OK)
+    {
+        FmPcdLockUnlockAll(p_FmPcd);
+        RETURN_ERROR(
+                MAJOR,
+                err,
+                ("The received key and mask pair was not found in the match table of the provided node"));
+    }
+
+    err = GetAgingMask(p_FmPcd, h_HashBucket, keyIndex, reset, &agingMask);
+
+    keyAgingBit = (0x80000000 >> keyIndex);
+    *p_KeyAging = ((agingMask & keyAgingBit) ? TRUE : FALSE);
+
+    FmPcdLockUnlockAll(p_FmPcd);
+
+    switch(GET_ERROR_TYPE(err))
+    {
+        case E_OK:
+            return E_OK;
+
+        case E_BUSY:
+            DBG(TRACE, ("E_BUSY error"));
+            return ERROR_CODE(E_BUSY);
+
+        default:
+            RETURN_ERROR(MAJOR, err, NO_MSG);
+    }
+}
+
+t_Error FM_PCD_HashTableGetBucketAging(t_Handle h_HashTbl,
+                                       uint16_t bucketId,
+                                       bool reset,
+                                       uint32_t *p_BucketAgingMask,
+                                       uint8_t *agedKeysArray[31])
+{
+    t_FmPcdCcNode *p_HashTbl = (t_FmPcdCcNode *)h_HashTbl;
+    t_FmPcd *p_FmPcd;
+    t_FmPcdCcNode *p_HashBucket;
+    uint32_t tmpMask, keyIndex = 0, indx = 0;
+    t_Error err;
+
+    SANITY_CHECK_RETURN_ERROR(p_HashTbl, E_INVALID_HANDLE);
+    p_FmPcd = (t_FmPcd *)p_HashTbl->h_FmPcd;
+    SANITY_CHECK_RETURN_ERROR(p_FmPcd, E_INVALID_HANDLE);
+    SANITY_CHECK_RETURN_ERROR(p_FmPcd->h_Hc, E_INVALID_HANDLE);
+
+#ifdef USE_ENHANCED_EHASH
+    if (p_HashTbl->externalHash)
+        return E_NOT_SUPPORTED;
+#endif /* USE_ENHANCED_EHASH */
+
+    p_HashBucket = (t_FmPcdCcNode *)(p_HashTbl->keyAndNextEngineParams[bucketId].nextEngineParams.params.ccParams.h_CcNode);
+
+    if (!p_HashBucket->agingSupport)
+        RETURN_ERROR(MAJOR, E_INVALID_STATE, ("Aging support was not enabled for this hash table"));
+
+    if (!FmPcdLockTryLockAll(p_FmPcd))
+    {
+        DBG(TRACE, ("FmPcdLockTryLockAll failed"));
+        return ERROR_CODE(E_BUSY);
+    }
+
+    err = GetAgingMask(p_FmPcd, p_HashBucket, FM_PCD_LAST_KEY_INDEX, reset, p_BucketAgingMask);
+
+    /* If the user provided a valid pointer, the aged keys will be copied
+       into the provided array of pointers */
+    if ((agedKeysArray) && (*p_BucketAgingMask))
+    {
+        tmpMask = *p_BucketAgingMask;
+
+        while (tmpMask)
+        {
+            /* If a bit is set in the aging mask and it doesn't correspond to miss entry,
+               copy the key into the aged keys array */
+            if ((tmpMask & 0x80000000) && (keyIndex != p_HashBucket->numOfKeys))
+            {
+                memcpy(agedKeysArray[indx], p_HashBucket->keyAndNextEngineParams[keyIndex].key, p_HashBucket->userSizeOfExtraction);
+                indx++;
+            }
+
+            tmpMask = (tmpMask << 1);
+            keyIndex++;
+        }
+    }
+
+    FmPcdLockUnlockAll(p_FmPcd);
+
+    switch(GET_ERROR_TYPE(err))
+    {
+        case E_OK:
+            return E_OK;
+
+        case E_BUSY:
+            DBG(TRACE, ("E_BUSY error"));
+            return ERROR_CODE(E_BUSY);
+
+        default:
+            RETURN_ERROR(MAJOR, err, NO_MSG);
+    }
+}
+
+#if (DPAA_VERSION >= 11)
+/**
+ * FmPcdCcBuildFE - Build/configure a Frame Engine object
+ * @h_FmPcd: Handle to FM PCD
+ * @p_FeParams: FE parameters
+ * @h_FE: Handle to FE object
+ *
+ * Stub implementation - FE configuration for enhanced hash support
+ */
+void FmPcdCcBuildFE(t_Handle h_FmPcd, t_FmPcdFEParams *p_FeParams, t_Handle h_FE)
+{
+    UNUSED(h_FmPcd);
+    UNUSED(p_FeParams);
+    UNUSED(h_FE);
+    /* Stub - FE building for enhanced external hash not implemented */
+}
+
+/**
+ * FmPcdCcBuildContextByFE - Build context using FE parameters
+ * @h_FmPcd: Handle to FM PCD
+ * @p_Context: Context buffer
+ * @offset: Offset in context
+ * @p_FeParams: FE context parameters
+ *
+ * Stub implementation - returns success without action
+ */
+t_Error FmPcdCcBuildContextByFE(t_Handle h_FmPcd,
+                                uint8_t *p_Context,
+                                uint16_t offset,
+                                t_FmPcdFEContextParams *p_FeParams)
+{
+    UNUSED(h_FmPcd);
+    UNUSED(p_Context);
+    UNUSED(offset);
+    UNUSED(p_FeParams);
+    /* Stub - FE context building for enhanced external hash not implemented */
+    return E_OK;
+}
+#endif /* DPAA_VERSION >= 11 */

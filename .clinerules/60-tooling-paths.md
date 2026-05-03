@@ -6,8 +6,8 @@ Use the existing scripts under `scripts/` rather than re-implementing their logi
 
 | Script | Purpose |
 |---|---|
-| `scripts/patch-health.sh --source release` | Validate the patch set. Must report `Pass: 16`, `Fail: 0`, `0 SDK conflicts`, `262 files to install`. |
-| `scripts/apply-to-tree.sh` | Apply patches AND copy verbatim SDK source drops into the kernel tree. Owns the 262-file invariant. |
+| `scripts/patch-health.sh --source release` | Validate the patch set. Must report `Pass: 16`, `Fail: 0`, `0 SDK conflicts`, `266 files to install`. |
+| `scripts/apply-to-tree.sh` | Apply patches AND copy verbatim SDK source drops into the kernel tree. Owns the 264-file invariant. |
 | `scripts/run-pipeline.sh` | Full local build pipeline. Slow; use when verifying end-to-end. |
 | `scripts/build-kernel.sh` | Kernel-only build step. |
 | `scripts/build-ask-iptables.sh` / `build-ask-modules.sh` / `build-ask-ppp.sh` | Out-of-tree component builds. |
@@ -27,7 +27,7 @@ Use the existing scripts under `scripts/` rather than re-implementing their logi
    ```
    git diff --no-prefix → scripts/normalize-patch.awk → release/patches/<bucket>/NNN-name.patch
    ```
-3. **Do not bypass `scripts/apply-to-tree.sh`** when staging the kernel tree. The 262-file SDK install count is enforced through it.
+3. **Do not bypass `scripts/apply-to-tree.sh`** when staging the kernel tree. The 264-file SDK install count is enforced through it.
 4. **If a script is wrong**, fix it in a `scripts:` commit; don't work around it.
 5. **Working directory layout** is fixed:
    - `work/linux-6.6.137.tar.xz` — pristine kernel tarball.

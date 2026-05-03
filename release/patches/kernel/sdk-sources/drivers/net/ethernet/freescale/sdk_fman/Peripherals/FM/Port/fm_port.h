@@ -941,6 +941,10 @@ typedef struct {
     uint8_t                     dfltRelativeId;
     e_FmPortGprFuncType         gprFunc;
     t_FmPcdCtrlParamsPage       *p_ParamsPage;
+
+	bool				supportFE;
+	uintptr_t			internalFEBufferPoolManagementIndexAddr;
+	uintptr_t			internalFEBufferPoolAddr;
 #endif /* (DPAA_VERSION >= 11) */
     t_FmPortDsarVars            deepSleepVars;
     t_FmPortDriverParam         *p_FmPortDriverParam;

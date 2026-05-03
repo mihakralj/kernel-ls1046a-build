@@ -304,7 +304,7 @@ static void _dpa_tx_error(struct net_device		*net_dev,
 	struct sk_buff *skb;
 
 	if (netif_msg_hw(priv) && net_ratelimit())
-		netdev_warn(net_dev, "FD status = 0x%08x\n",
+		netdev_warn(net_dev, "  _dpa_tx_error :FD status = 0x%08x\n",
 				fd->status & FM_FD_STAT_TX_ERRORS);
 #ifdef CONFIG_FSL_DPAA_HOOKS
 	if (dpaa_eth_hooks.tx_error &&
@@ -351,10 +351,16 @@ void __hot _dpa_process_parse_results(const fm_prs_result_t *parse_results,
 				      bool dcl4c_valid)
 {
 	if (dcl4c_valid && fd->status & FM_FD_STAT_L4CV) {
-		/* The parser has run and performed L4 checksum validation.
-		 * We know there were no parser errors (and implicitly no
-		 * L4 csum error), otherwise we wouldn't be here.
+		/* FM_FD_STAT_L4CV only indicates validation was ATTEMPTED.
+		 * We must also verify parse_results->cksum == 0xFFFF to
+		 * confirm the checksum actually PASSED.
 		 */
+		if (parse_results->cksum != DPA_CSUM_VALID) {
+			/* Checksum validation failed - use software checksum */
+			skb->ip_summed = CHECKSUM_NONE;
+			*use_gro = false;
+			return;
+		}
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 
 		/* Don't go through GRO for certain types of traffic that
@@ -450,11 +456,13 @@ priv_rx_error_dqrr(struct qman_portal		*portal,
 
 	percpu_priv = raw_cpu_ptr(priv->percpu_priv);
 	count_ptr = raw_cpu_ptr(priv->percpu_count);
-
+#ifndef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
 	if (dpaa_eth_napi_schedule(percpu_priv, portal))
 		return qman_cb_dqrr_stop;
+#endif
 
-	if (unlikely(dpaa_eth_refill_bpools(priv->dpa_bp, count_ptr)))
+	if (unlikely(dpaa_eth_refill_bpools(priv->dpa_bp, count_ptr,
+			CONFIG_FSL_DPAA_ETH_REFILL_THRESHOLD)))
 		/* Unable to refill the buffer pool due to insufficient
 		 * system memory. Just release the frame back into the pool,
 		 * otherwise we'll soon end up with an empty buffer pool.
@@ -488,13 +496,15 @@ priv_rx_default_dqrr(struct qman_portal		*portal,
 	/* IRQ handler, non-migratable; safe to use raw_cpu_ptr here */
 	percpu_priv = raw_cpu_ptr(priv->percpu_priv);
 	count_ptr = raw_cpu_ptr(priv->percpu_count);
-
+#ifndef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
 	if (unlikely(dpaa_eth_napi_schedule(percpu_priv, portal)))
 		return qman_cb_dqrr_stop;
+#endif
 
 	/* Vale of plenty: make sure we didn't run out of buffers */
 
-	if (unlikely(dpaa_eth_refill_bpools(dpa_bp, count_ptr)))
+	if (unlikely(dpaa_eth_refill_bpools(dpa_bp, count_ptr,
+			CONFIG_FSL_DPAA_ETH_REFILL_THRESHOLD)))
 		/* Unable to refill the buffer pool due to insufficient
 		 * system memory. Just release the frame back into the pool,
 		 * otherwise we'll soon end up with an empty buffer pool.
@@ -520,9 +530,10 @@ priv_tx_conf_error_dqrr(struct qman_portal		*portal,
 	priv = netdev_priv(net_dev);
 
 	percpu_priv = raw_cpu_ptr(priv->percpu_priv);
-
+#ifndef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
 	if (dpaa_eth_napi_schedule(percpu_priv, portal))
 		return qman_cb_dqrr_stop;
+#endif
 
 	_dpa_tx_error(net_dev, priv, percpu_priv, &dq->fd, fq->fqid);
 
@@ -546,10 +557,10 @@ priv_tx_conf_default_dqrr(struct qman_portal		*portal,
 
 	/* Non-migratable context, safe to use raw_cpu_ptr */
 	percpu_priv = raw_cpu_ptr(priv->percpu_priv);
-
+#ifndef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
 	if (dpaa_eth_napi_schedule(percpu_priv, portal))
 		return qman_cb_dqrr_stop;
-
+#endif
 	_dpa_tx_conf(net_dev, priv, percpu_priv, &dq->fd, fq->fqid);
 
 	return qman_cb_dqrr_consume;
@@ -697,6 +708,7 @@ static const struct net_device_ops dpa_private_ops = {
 	.ndo_poll_controller = dpaa_eth_poll_controller,
 #endif
 	.ndo_set_features = dpa_set_features,
+	.ndo_fix_features = dpa_fix_features,
 };
 
 static int dpa_private_napi_add(struct net_device *net_dev)
@@ -897,7 +909,8 @@ static void dpa_priv_bp_seed(struct net_device *net_dev)
 		 */
 		int *count_ptr = per_cpu_ptr(priv->percpu_count, i);
 
-		dpaa_eth_refill_bpools(dpa_bp, count_ptr);
+		dpaa_eth_refill_bpools(dpa_bp, count_ptr,
+			CONFIG_FSL_DPAA_ETH_REFILL_THRESHOLD);
 	}
 }
 
@@ -1010,9 +1023,12 @@ dpaa_eth_priv_probe(struct platform_device *_of_dev)
 
 	if (err < 0)
 		goto fq_probe_failed;
-
 	/* bp init */
-
+#ifndef EXCLUDE_FMAN_IPR_OFFLOAD
+	printk("%s::bpid %d, count %d ", __FUNCTION__,
+			dpa_bp->bpid, dpa_bp->config_count);
+	printk("adj count %d\n", dpa_bp->config_count);
+#endif
 	err = dpa_priv_bp_create(net_dev, dpa_bp, count);
 
 	if (err < 0)
@@ -1115,6 +1131,8 @@ dpaa_eth_priv_probe(struct platform_device *_of_dev)
 #ifdef CONFIG_PM
 	device_set_wakeup_capable(dev, true);
 #endif
+
+	priv->ifinfo = NULL;
 
 	pr_info("fsl_dpa: Probed interface %s\n", net_dev->name);
 

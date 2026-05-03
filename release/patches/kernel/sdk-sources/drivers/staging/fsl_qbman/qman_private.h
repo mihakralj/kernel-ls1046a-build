@@ -1,4 +1,5 @@
 /* Copyright 2008-2012 Freescale Semiconductor, Inc.
+ * Copyright 2019-2023 NXP
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -228,20 +229,24 @@ int qm_get_wpm(int *wpm);
 
 /* Hooks from qman_driver.c in to qman_high.c */
 struct qman_portal *qman_create_portal(
-			struct qman_portal *portal,
-			const struct qm_portal_config *config,
-			const struct qman_cgrs *cgrs,
-			bool need_cleanup);
+struct qman_portal *portal,
+const struct qm_portal_config *config,
+const struct qman_cgrs *cgrs,
+bool need_cleanup);
 
+#ifdef CONFIG_FSL_DPAA_ETHERCAT
+struct qman_portal *qman_create_affine_portal_ethercat
+(const struct qm_portal_config *config,
+const struct qman_cgrs *cgrs, int cpu);
+#endif
 struct qman_portal *qman_create_affine_portal(
-			const struct qm_portal_config *config,
-			const struct qman_cgrs *cgrs,
-			bool need_cleanup);
+const struct qm_portal_config *config,
+const struct qman_cgrs *cgrs,
+bool need_cleanup);
 struct qman_portal *qman_create_affine_slave(struct qman_portal *redirect,
 								int cpu);
 const struct qm_portal_config *qman_destroy_affine_portal(void);
 void qman_destroy_portal(struct qman_portal *qm);
-void qman_enable_irqs(void);
 
 /* Hooks from fsl_usdpaa.c to qman_driver.c */
 struct qm_portal_config *qm_get_unused_portal(void);
@@ -375,7 +380,6 @@ int qman_have_ccsr(void);
 
 __init int qman_init(void);
 __init int qman_resource_init(void);
-__init int qman_init_early(void);
 
 /* CEETM related */
 #define QMAN_CEETM_MAX	2

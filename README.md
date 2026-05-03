@@ -19,7 +19,7 @@ lts_6.6_ls1046a/
 │   │   ├── vyos/    (3 patches)          # VyOS deltas, applied first
 │   │   ├── ask/     (8 patches)          # ASK fast-path hooks
 │   │   ├── fixes/   (5 patches)          # 6.6.y-specific repairs
-│   │   └── kernel/sdk-sources/  (262 files)  # verbatim NXP SDK drivers (lf-6.6.y mirror)
+│   │   └── kernel/sdk-sources/  (266 files)  # verbatim NXP SDK drivers
 │   ├── vyos-base/                        # VyOS defconfig fragments
 │   │   ├── arm64/vyos_defconfig
 │   │   └── *.config                      # filesystems / networking / netfilter / ...
@@ -55,7 +55,7 @@ The patch set applies in fixed order: `vyos/` → `ask/` → `fixes/`. Within ea
 | `fixes/` | 094 | `swphy-10g-fixed-link.patch` | 10G fixed-link swphy support |
 | `fixes/` | 095 | `leds-lp5812-register.patch` | Register lp5812 LED driver in `drivers/leds/Makefile`+`Kconfig` |
 | `fixes/` | 097 | `ask-fci-nlkey-narrow-gate.patch` | `net/key/ask_fci_nlkey.c` + `CONFIG_ASK_FCI_NLKEY` to register `NETLINK_KEY=32` without enabling the (broken-on-6.6) IPsec offload data path |
-| `fixes/` | 099 | `dpaa-ethtool-quiet-no-phy.patch` | Demote 6 `netdev_err("phy device not initialized")` callsites in `sdk_dpaa/dpaa_ethtool.c` to `netdev_dbg` (legitimate on fixed-link / SFP+ boards with no `phylink`) |
+| `fixes/` | 098 | `fm-cc-ehash-redirect.patch` | Dispatch `FM_PCD_HashTableSet()` external-hash requests to `ExternalHashTableSet()` so the returned handle type matches what `copy_td_to_ccbase()` and friends cast it to (fixes `cdx_pcd.xml` `external="yes"` NULL-deref oops at `FM_PCD_CcRootBuild` time) |
 
 ---
 
@@ -65,7 +65,7 @@ The patch set applies in fixed order: `vyos/` → `ask/` → `fixes/`. Within ea
 
 ```text
 Pass: 16   Fail: 0
-0 SDK conflicts (262 files to install)
+0 SDK conflicts (266 files to install)
 ```
 
 These numbers are **producer-contract invariants**, not knobs. Lowering an assertion to make a failing build pass is forbidden (see `.clinerules/50-thresholds-are-authoritative.md`).
@@ -90,7 +90,7 @@ ASK on 6.6 deliberately does **not** enable `INET_IPSEC_OFFLOAD`; the IPsec offl
 | Script | Purpose |
 |---|---|
 | `scripts/patch-health.sh --source release` | Validate the patch set against pristine `linux-6.6.137`. Runs in seconds. |
-| `scripts/apply-to-tree.sh` | Apply patches AND copy verbatim SDK source drops into the kernel tree. Owns the 262-file invariant. |
+| `scripts/apply-to-tree.sh` | Apply patches AND copy verbatim SDK source drops into the kernel tree. Owns the 266-file invariant. |
 | `scripts/build-kernel.sh` | Native ARM64 kernel build → `work/build/*.deb`. |
 | `scripts/build-ask-modules.sh` | Out-of-tree ASK modules (cdx / fci / auto_bridge) → `ask-modules-*_arm64.deb`. Skipped when FMan SDK absent. |
 | `scripts/build-ask-iptables.sh` | Patched `iptables` source rebuild + `xt_QOSMARK` / `xt_QOSCONNMARK` extensions. |
@@ -118,7 +118,7 @@ Standard flow for a new `kernel-6.6.137-askN`:
 # 2. Re-extract pristine tree, validate
 rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
-#   Required: Pass: 16   Fail: 0   0 SDK conflicts   262 files
+#   Required: Pass: 16   Fail: 0   0 SDK conflicts   266 files
 
 # 3. Visually verify the affected file
 patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/0XX-name.patch
@@ -187,7 +187,7 @@ The tag is immutable: byte-identical artefacts forever. The consumer's lockfile 
 | `.clinerules/20-sdk-driver-rules.md` | NXP SDK driver invariants (the why behind ASK). |
 | `.clinerules/30-kconfig-defconfig.md` | Kconfig & defconfig discipline. |
 | `.clinerules/40-commit-style.md` | Commit / tag message style. |
-| `.clinerules/50-thresholds-are-authoritative.md` | Numeric invariants (16 / 0 / 262). |
+| `.clinerules/50-thresholds-are-authoritative.md` | Numeric invariants (16 / 0 / 266). |
 | `.clinerules/60-tooling-paths.md` | Canonical tooling paths. |
 
 ---

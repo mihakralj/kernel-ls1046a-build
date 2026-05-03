@@ -67,6 +67,18 @@ config FMAN_MIB_CNT_OVF_IRQ_EN
 		for the counters overflow but reduces performance and
 		triggers error messages in HV setups.
 
+config DBG_UCODE_INFRA
+	bool "debug infra support for microcode"
+	default n
+	help
+	  Enable/disable debug infra support for microcode.
+
+config DMAR_TEST
+	bool "DMA read test in microcode"
+	default n
+	help
+	  Enable DMA read test in microcode.
+
 config FSL_FM_MAX_FRAME_SIZE
 	int "Maximum L2 frame size"
 	depends on FSL_SDK_FMAN

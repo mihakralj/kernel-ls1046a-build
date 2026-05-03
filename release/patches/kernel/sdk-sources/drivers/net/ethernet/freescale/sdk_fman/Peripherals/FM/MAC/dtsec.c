@@ -320,7 +320,7 @@ static void DtsecIsr(t_Handle h_Dtsec)
     ASSERT_COND(!(event & DTSEC_IMASK_IFERREN));
 }
 
-static t_Error DtsecMdioIsr(t_Handle h_Dtsec)
+static void DtsecMdioIsr(t_Handle h_Dtsec)
 {
     t_Dtsec             *p_Dtsec = (t_Dtsec *)h_Dtsec;
     uint32_t            event;
@@ -340,8 +340,6 @@ static t_Error DtsecMdioIsr(t_Handle h_Dtsec)
         if (event & DTSEC_IMASK_MMWREN)
             p_Dtsec->f_Event(p_Dtsec->h_App, e_FM_MAC_EX_1G_MII_MNG_WR_COMPLET);
     }
-
-    return E_OK;
 }
 
 static void Dtsec1588Isr(t_Handle h_Dtsec)

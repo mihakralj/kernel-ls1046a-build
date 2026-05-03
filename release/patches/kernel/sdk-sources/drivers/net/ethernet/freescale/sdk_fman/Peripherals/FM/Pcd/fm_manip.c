@@ -4667,6 +4667,74 @@ static t_Error FmPcdManipModifyUpdate(t_Handle h_Manip, t_Handle h_Ad,
 /*****************************************************************************/
 /*              Inter-module API routines                                    */
 /*****************************************************************************/
+void FmPcdManipGetInternaltHmTdAndNonHmAd(t_Handle h_Manip, t_Handle *p_InernalHmtd, t_Handle *p_NonHmAd)
+{
+    t_FmPcdManip *p_FirstManip, *p_Manip = (t_FmPcdManip *)h_Manip;
+
+    ASSERT_COND(h_Manip);
+    ASSERT_COND(p_InernalHmtd);
+    ASSERT_COND(p_NonHmAd);
+
+    *p_InernalHmtd = NULL;
+    *p_NonHmAd = NULL;
+ 
+    p_FirstManip = p_Manip;
+    do {
+        if ((p_Manip->type == e_FM_PCD_MANIP_HDR) && (p_Manip->dataSize)) {
+            *p_InernalHmtd = p_FirstManip->h_Ad;
+            break;
+        }
+        if (p_Manip->type != e_FM_PCD_MANIP_HDR) {
+            *p_NonHmAd = p_Manip->h_Ad;
+            break;
+        }
+        p_Manip = p_Manip->h_NextManip;
+    } while (p_Manip);
+}
+
+void FmPcdManipLocalHMGetParams(t_Handle h_Manip, t_FmPcdManipHmCcParams *p_Params, t_Handle *h_ManipIter)
+{
+    t_FmPcdManip *p_Manip;
+
+    ASSERT_COND(h_Manip);
+    ASSERT_COND(h_ManipIter);
+    ASSERT_COND(p_Params);
+
+    p_Manip = (t_FmPcdManip *)h_Manip;
+ 
+    if (p_Manip->type != e_FM_PCD_MANIP_HDR)
+    {
+        p_Params->p_Hmct = NULL;
+        p_Params->tableSize = 0;
+        *h_ManipIter = NULL;
+        return;
+    }
+ 
+    if (*h_ManipIter == NULL) {
+        /* jump to the end of the HM chain */
+        while (p_Manip->h_NextManip &&
+                (((t_FmPcdManip *)p_Manip->h_NextManip)->type == e_FM_PCD_MANIP_HDR))
+            p_Manip = p_Manip->h_NextManip;
+    } else {
+        p_Manip = *h_ManipIter;
+    }
+
+    do {
+        if (!MANIP_IS_UNIFIED(p_Manip) ||
+                MANIP_IS_UNIFIED_FIRST(p_Manip))
+        {
+            p_Params->p_Hmct = p_Manip->p_Hmct;
+            p_Params->tableSize += p_Manip->tableSize;
+            p_Params->parseAfterHm = !p_Manip->dontParseAfterManip;
+            p_Manip = p_Manip->h_PrevManip;
+            break;
+        }
+        p_Params->tableSize += p_Manip->tableSize;
+        p_Manip = p_Manip->h_PrevManip;
+    } while (p_Manip);
+
+    *h_ManipIter = p_Manip;
+}
 
 t_Error FmPcdManipUpdate(t_Handle h_FmPcd, t_Handle h_PcdParams,
                          t_Handle h_FmPort, t_Handle h_Manip, t_Handle h_Ad,

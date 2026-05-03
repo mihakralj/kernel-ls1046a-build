@@ -162,8 +162,12 @@ do                                      \
 #define CYCLES_TO_PSEC(cycles,clk)  (((cycles) * 1000000) / (clk))
 
 /* Min, Max macros */
+#ifndef MIN
 #define MIN(a,b)    ((a) < (b) ? (a) : (b))
+#endif
+#ifndef MAX
 #define MAX(a,b)    ((a) > (b) ? (a) : (b))
+#endif
 #define IN_RANGE(min,val,max) ((min)<=(val) && (val)<=(max))
 
 #define ABS(a)  ((a<0)?(a*-1):a)
@@ -288,7 +292,7 @@ typedef uint32_t    t_Error;
 
  @Return        None
  *//***************************************************************************/
-typedef t_Error (t_Isr)(t_Handle handle);
+typedef void (t_Isr)(t_Handle handle);
 
 /**************************************************************************//**
  @Anchor        mem_attr

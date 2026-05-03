@@ -794,6 +794,8 @@ int fm_mac_resume(struct fm_mac_dev *fm_mac_dev);
 
 int fm_mac_set_promiscuous(struct fm_mac_dev *fm_mac_dev,
 		bool enable);
+int fm_mac_set_allmulti(struct fm_mac_dev *fm_mac_dev,
+		bool enable);
 
 int fm_mac_remove_hash_mac_addr(struct fm_mac_dev *fm_mac_dev,
 		t_EnetAddr *mac_addr);

@@ -28,15 +28,6 @@
 # want to track a newer LTS point release.
 : "${KERNEL_VERSION:=6.6.137}"
 
-# ── NXP qoriq SDK reference (source of the in-tree SDK overlay) ────────
-# As of ask6, release/patches/kernel/sdk-sources/ is a verbatim mirror
-# of the SDK driver dirs from this NXP qoriq lf-6.6.y commit (replacing
-# the previous broken 5.4.3-era drop). Bump SHA + re-import to track a
-# newer SDK; tooling: scripts/import-nxp-sdk.sh.
-: "${NXP_SDK_REPO:=https://github.com/nxp-qoriq/linux}"
-: "${NXP_SDK_BRANCH:=lf-6.6.y}"
-: "${NXP_SDK_SHA:=e0f9e2afd4cff3f02d71891244b4aa5899dfc786}"
-
 # ── File paths inside upstream 6.12 tree ───────────────────────────────
 : "${UPSTREAM_KERNEL_PATCH:=patches/kernel/002-mono-gateway-ask-kernel_linux_6_12.patch}"
 
@@ -48,5 +39,4 @@
 export REFERENCE_REPO REFERENCE_REF
 export UPSTREAM_REPO UPSTREAM_BRANCH UPSTREAM_BASELINE UPSTREAM_TARGET
 export KERNEL_VERSION
-export NXP_SDK_REPO NXP_SDK_BRANCH NXP_SDK_SHA
 export UPSTREAM_KERNEL_PATCH REFERENCE_KERNEL_PATCH REFERENCE_SDK_SOURCES
