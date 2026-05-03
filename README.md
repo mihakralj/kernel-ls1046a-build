@@ -19,7 +19,7 @@ lts_6.6_ls1046a/
 │   │   ├── vyos/    (3 patches)          # VyOS deltas, applied first
 │   │   ├── ask/     (8 patches)          # ASK fast-path hooks
 │   │   ├── fixes/   (5 patches)          # 6.6.y-specific repairs
-│   │   └── kernel/sdk-sources/  (262 files)  # verbatim NXP SDK drivers (lf-6.6.y mirror)
+│   │   └── kernel/sdk-sources/  (265 files)  # verbatim NXP SDK drivers (lf-6.6.y mirror)
 │   ├── vyos-base/                        # VyOS defconfig fragments
 │   │   ├── arm64/vyos_defconfig
 │   │   └── *.config                      # filesystems / networking / netfilter / ...
@@ -65,7 +65,7 @@ The patch set applies in fixed order: `vyos/` → `ask/` → `fixes/`. Within ea
 
 ```text
 Pass: 21   Fail: 0
-0 SDK conflicts (262 files to install)
+0 SDK conflicts (265 files to install)
 ```
 
 These numbers are **producer-contract invariants**, not knobs. Lowering an assertion to make a failing build pass is forbidden (see `.clinerules/50-thresholds-are-authoritative.md`).
@@ -118,7 +118,7 @@ Standard flow for a new `kernel-6.6.137-askN`:
 # 2. Re-extract pristine tree, validate
 rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
-#   Required: Pass: 21   Fail: 0   0 SDK conflicts   262 files
+#   Required: Pass: 21   Fail: 0   0 SDK conflicts   265 files
 
 # 3. Visually verify the affected file
 patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/0XX-name.patch

@@ -30,7 +30,7 @@ A native ARM64 build runs ~22 min. The `concurrency:` group does **not** dedupe 
 - Recent green `scripts/patch-health.sh --source release`:
   - `Pass: 21   Fail: 0`
   - `0 SDK conflicts`
-  - `262 files to install`
+  - `265 files to install`
 - `release/manifest.json` askN field bumped.
 - Defconfig fragments under `release/vyos-base/` unchanged from last green build, unless intentionally modified by this iteration's commits.
 
