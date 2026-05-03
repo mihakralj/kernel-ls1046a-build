@@ -33,7 +33,7 @@ rm -rf work/linux-6.6.135 && tar -xf work/linux-6.6.135.tar.xz -C work/
 bash scripts/patch-health.sh --source release
 ```
 
-Must report `Pass: 15   Fail: 0` and `0 SDK conflicts (266 files to install)`. A clean `patch-health` is **not sufficient** — `git apply` may report success even when a patch's hunk count is wrong and lines get silently truncated. After patch-health, also visually inspect the affected file:
+Must report `Pass: 16   Fail: 0` and `0 SDK conflicts (266 files to install)`. A clean `patch-health` is **not sufficient** — `git apply` may report success even when a patch's hunk count is wrong and lines get silently truncated. After patch-health, also visually inspect the affected file:
 
 ```bash
 patch -p1 -d work/linux-6.6.135 < release/patches/ask/0X0-…patch
@@ -80,8 +80,11 @@ is `vyos/` → `ask/` → `fixes/`; within each bucket, sort by filename.
 | 094 | `swphy-10g-fixed-link.patch` | 10G fixed-link swphy support |
 | 095 | `leds-lp5812-register.patch` | Register the lp5812 LED driver in `drivers/leds/Makefile` + `Kconfig` |
 | 097 | `ask-fci-nlkey-narrow-gate.patch` | Adds `net/key/ask_fci_nlkey.c` + `CONFIG_ASK_FCI_NLKEY` to register `NETLINK_KEY=32` without enabling the (broken-on-6.6) IPsec offload data path |
+| 098 | `fm-cc-ehash-redirect.patch` | At the head of `FM_PCD_HashTableSet()`, dispatch external (DDR-resident) hash tables to `ExternalHashTableSet()` so the returned handle is `en_exthash_info *` — matching what `copy_td_to_ccbase()`, `FM_PCD_HashTableAddKey()`, etc. unconditionally cast it to. Without this redirect, `cdx_pcd.xml` `external="yes"` requests fall through to the in-MURAM CC-node path, the `t_FmPcdCcNode *` is later reinterpret-cast as `en_exthash_info *`, and `info->node->word_1` NULL-derefs in `copy_td_to_ccbase()` at `FM_PCD_CcRootBuild` time |
 
 SDK source files (266 of them) are dropped under `release/patches/kernel/sdk-sources/` and copied into the kernel tree by `scripts/apply-to-tree.sh`. The 266 includes the lp5812 driver source pair.
+
+Patches in `fixes/` may target SDK-dropped files (e.g. 098 patches `sdk_fman/Peripherals/FM/Pcd/fm_cc.c`). `scripts/patch-health.sh` stages SDK sources into the kernel tree before the dry-run check so such patches validate cleanly.
 
 ## Driver Stack (the why behind ASK)
 
@@ -130,9 +133,10 @@ ask50 (FCI fix) is therefore a **single-line defconfig change** flipping `CONFIG
 
 ### Chain 2 — userspace-side (consumer `vyos-ls1046a-build` responsibility, NOT this repo)
 - Symptoms: `dpa_app applied PCD configuration (failed rc=65280)`, `BMan fragment buffer pool located by CDX [FAILED]`, `no ASK driver probe/init/bind failures (≥1 hit(s))`.
-- Trigger: `fm_cc.c:4377 AllocStatsObjs Memory Allocation Failed`.
-- Cause: `/etc/cdx_pcd.xml` requests ~16K stats objects in 384 KiB FMan MURAM; on-target `fmc` doesn't understand `external="yes" aging="yes"` and silently drops the DDR-offload directives, so hash tables fall back to MURAM and the allocator runs dry.
-- Fix lives in: `vyos-ls1046a-build` (rebuild `fmc`/`fmlib` from a tag that supports `external/aging`, and/or trim `cdx_pcd.xml` key counts). The kernel SDK is correctly reporting MURAM exhaustion; **no producer-side change can help.**
+- Sub-trigger A (MURAM exhaustion): `fm_cc.c:4377 AllocStatsObjs Memory Allocation Failed`.
+  - Cause: `/etc/cdx_pcd.xml` requests ~16K stats objects in 384 KiB FMan MURAM; on-target `fmc` doesn't understand `external="yes" aging="yes"` and silently drops the DDR-offload directives, so hash tables fall back to MURAM and the allocator runs dry.
+  - Fix lives in: `vyos-ls1046a-build` (rebuild `fmc`/`fmlib` from a tag that supports `external/aging`, and/or trim `cdx_pcd.xml` key counts).
+- Sub-trigger B (NULL-deref in `copy_td_to_ccbase`, ARM64 oops at `+0x68`): the kernel-side path of an EHASH external-hash request was wired wrong in the vendored SDK — `FM_PCD_HashTableSet()` did not dispatch to `ExternalHashTableSet()` when `p_Param->externalHash` was set, so the returned `t_FmPcdCcNode *` was later reinterpret-cast as `en_exthash_info *` and the first field load NULL-deref'd. **Fixed at producer level by `fixes/098-fm-cc-ehash-redirect.patch` (kernel-6.6.135-ask53).** Once a consumer pins ask53 or later, only sub-trigger A's userspace work remains.
 
 The chains are independent: `fci.ko` does not register NETLINK_KEY (that is the in-tree `ask_fci_nlkey` `late_initcall`'s job), and `dpa_app` runs from `cdx_module_init` independent of `cmm`. Diagnose each chain separately and route fixes to the correct repo.
 
