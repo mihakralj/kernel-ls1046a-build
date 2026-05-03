@@ -11,7 +11,17 @@
  #define INCLUDE_IFSTATS_SUPPORT 1
 --- a/cdx/devman.c
 +++ b/cdx/devman.c
-@@ -2690,14 +2690,18 @@
+@@ -830,7 +830,9 @@
+ #endif
+ 		}
+ 		else if (iface->if_flags & IF_TYPE_ETHERNET ) {
++#ifdef INCLUDE_ETHER_IFSTATS
+ 			l2_info->ether_stats_offset = iface->txstats_index;
++#endif
+ 			l2_info->dscp_vlanpcp_map_enable = 
+ 				cdx_get_tx_dscp_vlanpcp_map_enable(iface->eth_info.portid);
+ 			if ((l2_info->dscp_vlanpcp_map_enable) &&
+@@ -2690,14 +2692,18 @@
  
  void dpa_update_timestamp(uint32_t ts)
  {
