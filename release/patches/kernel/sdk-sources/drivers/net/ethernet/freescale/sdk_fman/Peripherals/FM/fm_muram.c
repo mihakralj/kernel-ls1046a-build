@@ -36,8 +36,6 @@
 
  @Description   FM MURAM ...
 *//***************************************************************************/
-#include <linux/slab.h>
-
 #include "error_ext.h"
 #include "std_ext.h"
 #include "mm_ext.h"
@@ -48,13 +46,6 @@
 
 #define __ERR_MODULE__  MODULE_FM_MURAM
 
-#ifndef DBG_UCODE_RESVD_MURAM_SIZE
-#define DBG_UCODE_RESVD_MURAM_SIZE 0
-#endif
-
-/* Exported globals used by PCD debug/ehash helpers */
-void     *FmMurambaseAddr;
-uint32_t  FmMuramsize;
 
 typedef struct
 {
@@ -72,22 +63,6 @@ void FmMuramClear(t_Handle h_FmMuram)
     IOMemSet32(UINT_TO_PTR(p_FmMuram->baseAddr), 0, p_FmMuram->size);
 }
 
-void *get_muram_data(uint32_t *size)
-{
-        uint8_t *src;
-        uint8_t *dst;
-
-        printk("%s::base %p size %d\n", __FUNCTION__,
-                FmMurambaseAddr,
-                FmMuramsize);
-        *size = FmMuramsize;
-        src = (uint8_t *)FmMurambaseAddr;
-        dst = (uint8_t *)kzalloc(FmMuramsize, GFP_KERNEL);
-        if (dst)
-                memcpy(dst, src, FmMuramsize);
-        return (dst);
-}
-EXPORT_SYMBOL(get_muram_data);
 
 t_Handle FM_MURAM_ConfigAndInit(uintptr_t baseAddress, uint32_t size)
 {
@@ -115,12 +90,8 @@ t_Handle FM_MURAM_ConfigAndInit(uintptr_t baseAddress, uint32_t size)
     }
     memset(p_FmMuram, 0, sizeof(t_FmMuram));
 
-#ifdef CONFIG_DBG_UCODE_INFRA 
-	printk(KERN_INFO "%s(%d) size %d 0x%x\n", __FUNCTION__,__LINE__, size, size);
-#endif //CONFIG_DBG_UCODE_INFRA
 
-    if ((MM_Init(&h_Mem, baseAddress, size - DBG_UCODE_RESVD_MURAM_SIZE) 
-					!= E_OK) || (!h_Mem))
+    if ((MM_Init(&h_Mem, baseAddress, size) != E_OK) || (!h_Mem))
     {
         XX_Free(p_FmMuram);
         REPORT_ERROR(MAJOR, E_INVALID_HANDLE, ("FM-MURAM partition!!!"));
@@ -129,10 +100,9 @@ t_Handle FM_MURAM_ConfigAndInit(uintptr_t baseAddress, uint32_t size)
 
     /* Initialize FM MURAM parameters which will be kept by the driver */
     p_FmMuram->baseAddr = baseAddress;
-    p_FmMuram->size = size - DBG_UCODE_RESVD_MURAM_SIZE;
+    p_FmMuram->size = size;
     p_FmMuram->h_Mem = h_Mem;
-    FmMurambaseAddr = (void *)baseAddress;
-    FmMuramsize = size;
+
     return p_FmMuram;
 }
 
@@ -163,7 +133,6 @@ void  * FM_MURAM_AllocMem(t_Handle h_FmMuram, uint32_t size, uint32_t align)
 
     return UINT_TO_PTR(addr);
 }
-EXPORT_SYMBOL(FM_MURAM_AllocMem);
 
 void  * FM_MURAM_AllocMemForce(t_Handle h_FmMuram, uint64_t base, uint32_t size)
 {
@@ -193,7 +162,6 @@ t_Error FM_MURAM_FreeMem(t_Handle h_FmMuram, void *ptr)
 
     return E_OK;
 }
-EXPORT_SYMBOL(FM_MURAM_FreeMem);
 
 uint64_t FM_MURAM_GetFreeMemSize(t_Handle h_FmMuram)
 {
@@ -204,5 +172,3 @@ uint64_t FM_MURAM_GetFreeMemSize(t_Handle h_FmMuram)
 
     return MM_GetFreeMemSize(p_FmMuram->h_Mem);
 }
-EXPORT_SYMBOL(FmMurambaseAddr);
-

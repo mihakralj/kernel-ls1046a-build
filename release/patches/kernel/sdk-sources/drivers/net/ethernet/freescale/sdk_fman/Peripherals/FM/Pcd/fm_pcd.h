@@ -202,28 +202,6 @@ typedef struct {
                                 portId for PLCR in any environment */
 } t_FmPcdAllocMng;
 
-#if (DPAA_VERSION >= 11)
-typedef struct {
-    t_FmPcdFEParams feParams;
-    t_Handle        h_FE;
-    t_List          node;
-} t_FmPcdFEObj;
-#define FM_PCD_FE_OBJ(ptr)  LIST_OBJECT(ptr, t_FmPcdFEObj, node)
-
-typedef struct {
-    t_Handle    h_Mux;
-    t_Handle    h_Exit;
-    t_Handle    h_Transition;
-    struct {
-        t_Handle    h_HmWParse;
-        t_Handle    h_HmWOParse;
-    } hm[FM_MAX_HM_CONTEXTS];
-
-    t_List      availableFeLst;
-    t_List      enqLst;
-} t_FmPcdFEInfo;
-#endif /* DPAA_VERSION >= 11 */
-
 typedef struct {
     volatile bool       lock;
     bool                used;
@@ -396,14 +374,6 @@ typedef struct {
     uintptr_t                   capwapFrameIdAddr;
     bool                        advancedOffloadSupport;
 
-#if (DPAA_VERSION >= 11)
-    t_FmPcdFEInfo               feInfo;
-#endif /* DPAA_VERSION >= 11 */
- 
-#ifdef USE_ENHANCED_EHASH
-    uint32_t			InternalBufMgmtMuramArea; // MURAM address area used for internal buffers in EHASH
-    void *pIntMuramPtr; // MURAM pointer for internal buffers in EHASH
-#endif //USE_ENHANCED_EHASH
     t_FmPcdDriverParam          *p_FmPcdDriverParam;
 } t_FmPcd;
 
@@ -508,16 +478,6 @@ t_List *FmPcdManipGetNodeLstPointedOnThisManip(t_Handle h_Manip);
 
 typedef struct
 {
-    uint8_t     *p_Hmct;
-    uint16_t    tableSize;
-    bool        parseAfterHm;
-} t_FmPcdManipHmCcParams;
-
-void FmPcdManipLocalHMGetParams(t_Handle h_Manip, t_FmPcdManipHmCcParams *p_Params, t_Handle *h_ManipIter);
-void FmPcdManipGetInternaltHmTdAndNonHmAd(t_Handle h_Manip, t_Handle *p_InernalHmtd, t_Handle *p_NonHmAd);
-
-typedef struct
-{
     t_Handle    h_StatsAd;
     t_Handle    h_StatsCounters;
 #if (DPAA_VERSION >= 11)
@@ -563,28 +523,6 @@ static __inline__ bool FmPcdLockTryLock(t_FmPcdLock *p_Lock)
 
     ASSERT_COND(p_Lock);
     intFlags = XX_LockIntrSpinlock(p_Lock->h_Spinlock);
-    if (p_Lock->flag)
-    {
-        XX_UnlockIntrSpinlock(p_Lock->h_Spinlock, intFlags);
-        return FALSE;
-    }
-    p_Lock->flag = TRUE;
-    XX_UnlockIntrSpinlock(p_Lock->h_Spinlock, intFlags);
-    return TRUE;
-}
-
-/* Variant that takes its spinlock with an explicit lockdep subclass.
- * All XX_InitSpinlock()-created locks share one lockdep class, so any code
- * path that acquires a second instance while holding the first (see
- * FmPcdLockTryLockAll) triggers a false-positive recursive-locking warning.
- * Pass SINGLE_DEPTH_NESTING from the inner site.
- */
-static __inline__ bool FmPcdLockTryLockNested(t_FmPcdLock *p_Lock, int subclass)
-{
-    uint32_t intFlags;
-
-    ASSERT_COND(p_Lock);
-    intFlags = XX_LockIntrSpinlockNested(p_Lock->h_Spinlock, subclass);
     if (p_Lock->flag)
     {
         XX_UnlockIntrSpinlock(p_Lock->h_Spinlock, intFlags);

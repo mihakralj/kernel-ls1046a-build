@@ -454,7 +454,6 @@ t_Handle FM_VSP_Config(t_FmVspParams *p_FmVspParams)
 
    return p_FmVspEntry;
 }
-EXPORT_SYMBOL(FM_VSP_Config);
 
 t_Error FM_VSP_Init(t_Handle h_FmVsp)
 {
@@ -567,7 +566,6 @@ t_Error FM_VSP_Init(t_Handle h_FmVsp)
 
     return E_OK;
 }
-EXPORT_SYMBOL(FM_VSP_Init);
 
 t_Error FM_VSP_Free(t_Handle h_FmVsp)
 {
@@ -576,7 +574,6 @@ t_Error FM_VSP_Free(t_Handle h_FmVsp)
     XX_Free(p_FmVspEntry);
     return E_OK;
 }
-EXPORT_SYMBOL(FM_VSP_Free);
 
 t_Error FM_VSP_ConfigBufferPrefixContent(t_Handle h_FmVsp, t_FmBufferPrefixContent *p_FmBufferPrefixContent)
 {
@@ -592,7 +589,6 @@ t_Error FM_VSP_ConfigBufferPrefixContent(t_Handle h_FmVsp, t_FmBufferPrefixConte
 
     return E_OK;
 }
-EXPORT_SYMBOL(FM_VSP_ConfigBufferPrefixContent);
 
 t_Error FM_VSP_ConfigDmaSwapData(t_Handle h_FmVsp, e_FmDmaSwapOption swapData)
 {

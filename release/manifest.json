@@ -1,5 +1,5 @@
 {
-  "generated_at":       "2026-04-21T03:56:48Z",
+  "generated_at":       "2026-05-03T21:17:00Z",
   "status":             "ok",
   "reference_repo":     "https://github.com/mihakralj/ask-ls1046a-6.6.git",
   "reference_sha":      "6b179dd4ee26365b8ae4b9f2fdb3941d0f7b2294",
@@ -9,6 +9,10 @@
   "upstream_target":    "a211ea865379362058c6656b9c448e4a7050e93c",
   "delta_lines":        0,
   "drifted_files":      0,
-  "sdk_source_count":   67,
+  "nxp_sdk_repo":       "https://github.com/nxp-qoriq/linux",
+  "nxp_sdk_branch":     "lf-6.6.y",
+  "nxp_sdk_sha":        "e0f9e2afd4cff3f02d71891244b4aa5899dfc786",
+  "sdk_source_count":   262,
+  "ask_iteration":      "ask6",
   "output_dir":         "/root/lts_6.6_ls1046a/work/derived"
 }
