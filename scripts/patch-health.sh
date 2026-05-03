@@ -94,6 +94,34 @@ done
 (( ${#PATCHES[@]} )) || err "no patches found under $PATCH_ROOT/{vyos,ask,fixes}/"
 dim "discovered ${#PATCHES[@]} patches across vyos/ ask/ fixes/"
 
+# ── Stage SDK sources into the tree ─────────────────────────────────────
+# Some patches (e.g. fixes/098-fm-cc-ehash-redirect.patch) target files that
+# only exist after `apply-to-tree.sh` has copied the verbatim NXP SDK source
+# drops into the kernel tree. Mirror that step here so `git apply --check`
+# can resolve those paths. This is dry-run-safe: we only ADD files, never
+# modify pristine kernel files, and the user is expected to re-extract the
+# tree (as documented in AGENTS.md) before each run.
+SDK_TOTAL_PRE=0; SDK_CONFLICTS_PRE=0; SDK_STAGED=0
+if [[ -d "$SDK_DIR" ]]; then
+    # Count conflicts BEFORE staging so the "files to install" assertion below
+    # reports against the pristine tree, matching apply-to-tree.sh semantics.
+    while IFS= read -r f; do
+        SDK_TOTAL_PRE=$((SDK_TOTAL_PRE+1))
+        [[ -e "$KDIR/$f" ]] && SDK_CONFLICTS_PRE=$((SDK_CONFLICTS_PRE+1))
+    done < <(cd "$SDK_DIR" && find . -type f | sed 's|^\./||')
+
+    info "staging SDK sources into kernel tree (so patches targeting SDK files can validate)"
+    while IFS= read -r f; do
+        dst="$KDIR/$f"
+        if [[ ! -e "$dst" ]]; then
+            mkdir -p "$(dirname "$dst")"
+            cp "$SDK_DIR/$f" "$dst"
+            SDK_STAGED=$((SDK_STAGED+1))
+        fi
+    done < <(cd "$SDK_DIR" && find . -type f | sed 's|^\./||')
+    dim "   staged $SDK_STAGED SDK file(s) for validation"
+fi
+
 # ── Header ──────────────────────────────────────────────────────────────
 SUMMARY="$WORK_DIR/patch-health.txt"
 {
@@ -137,20 +165,17 @@ for p in "${PATCHES[@]}"; do
 done
 
 # ── SDK source conflict check ───────────────────────────────────────────
+# Reports the PRE-staging counts so the "files to install" invariant matches
+# what apply-to-tree.sh sees on a freshly-extracted pristine tree.
 if [[ -d "$SDK_DIR" ]]; then
     echo | tee -a "$SUMMARY"
     info "checking SDK source path conflicts…"
-    SDK_CONFLICTS=0; SDK_TOTAL=0
-    while IFS= read -r f; do
-        SDK_TOTAL=$((SDK_TOTAL+1))
-        [[ -e "$KDIR/$f" ]] && SDK_CONFLICTS=$((SDK_CONFLICTS+1))
-    done < <(cd "$SDK_DIR" && find . -type f | sed 's|^\./||')
-    if (( SDK_CONFLICTS > 0 )); then
-        warn "$SDK_CONFLICTS of $SDK_TOTAL SDK file(s) already exist (ASK will overwrite)"
+    if (( SDK_CONFLICTS_PRE > 0 )); then
+        warn "$SDK_CONFLICTS_PRE of $SDK_TOTAL_PRE SDK file(s) already exist (ASK will overwrite)"
     else
-        ok "no SDK file conflicts ($SDK_TOTAL files to install)"
+        ok "no SDK file conflicts ($SDK_TOTAL_PRE files to install)"
     fi
-    echo "SDK files: $SDK_TOTAL, conflicts: $SDK_CONFLICTS" >> "$SUMMARY"
+    echo "SDK files: $SDK_TOTAL_PRE, conflicts: $SDK_CONFLICTS_PRE" >> "$SUMMARY"
 fi
 
 # ── Verdict ─────────────────────────────────────────────────────────────
