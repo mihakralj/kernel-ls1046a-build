@@ -1,0 +1,36 @@
+--- a/cdx/cdx_common.h
++++ b/cdx/cdx_common.h
+@@ -43,7 +43,7 @@
+ #endif
+ 
+ //include ethernet fast path statistics
+-#define INCLUDE_ETHER_IFSTATS 1
++//#define INCLUDE_ETHER_IFSTATS 1  /* ask10: lf-6.6.y SDK has no dpa_set_eth_ifinfo() / dpa_update_eth_if() */
+ 
+ #if defined(INCLUDE_VLAN_IFSTATS) || defined(INCLUDE_PPPoE_IFSTATS) || defined(INCLUDE_TUNNEL_IFSTATS) || defined(INCLUDE_ETHER_IFSTATS)
+ #define INCLUDE_IFSTATS_SUPPORT 1
+--- a/cdx/devman.c
++++ b/cdx/devman.c
+@@ -2690,14 +2690,18 @@
+ 
+ void dpa_update_timestamp(uint32_t ts)
+ {
+-	if (!extHashTsInfo.ptr)
+-		return;
+-	FM_PCD_UpdateExtTimeStamp(EXTERNAL_TIMESTAMP_TIMERID, cpu_to_be32(ts));
++	/* ask10: lf-6.6.y SDK has no external-timestamp / EHASH support.
++	 * extHashTsInfo, FM_PCD_UpdateExtTimeStamp, EXTERNAL_TIMESTAMP_TIMERID
++	 * do not exist. Stub to no-op; PTP/external-timestamp is not used
++	 * by the boot path. */
++	(void)ts;
+ }
+ 
+ uint32_t dpa_get_timestamp_addr(uint32_t id)
+ {
+-	return(FM_PCD_GetExtTimeStampAddr(id));
++	/* ask10: see dpa_update_timestamp(). */
++	(void)id;
++	return 0;
+ }
+ 
+ 
