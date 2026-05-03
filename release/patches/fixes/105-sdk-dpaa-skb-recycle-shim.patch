@@ -1,0 +1,47 @@
+SDK DPAA dpaa_eth_sg.c: provide skb_recycle() shim
+
+drivers/net/ethernet/freescale/sdk_dpaa/dpaa_eth_sg.c calls skb_recycle()
+in the TX recycle fast-path (line 1210).  skb_recycle() was removed from
+mainline years ago (commit e6da78f in 4.x).
+
+  drivers/net/ethernet/freescale/sdk_dpaa/dpaa_eth_sg.c:1210:17:
+    error: implicit declaration of function 'skb_recycle'
+
+Provide a static inline equivalent that performs the parts of the old
+helper the SDK actually relies on:
+  - skb_release_head_state()
+  - reset shinfo and dataref
+  - zero the skb up to ->tail
+
+The caller immediately overrides skb->data and tailptr after the call,
+so we don't replicate skb_recycle's NET_SKB_PAD reservation (the comment
+already in the SDK source notes this explicitly).
+
+--- a/drivers/net/ethernet/freescale/sdk_dpaa/dpaa_eth_sg.c
++++ b/drivers/net/ethernet/freescale/sdk_dpaa/dpaa_eth_sg.c
+@@ -45,6 +45,25 @@
+ #include <linux/fsl_bman.h>
+ #include <net/sock.h>
+ 
++/*
++ * skb_recycle() was removed from mainline; the SDK still calls it.
++ * Provide a static inline equivalent: release head state, reset
++ * shinfo refcount, zero the skb up to ->tail.  The caller (this file
++ * at the only call site) immediately overrides skb->data and tailptr
++ * so we don't bother setting them here.
++ */
++static inline void skb_recycle(struct sk_buff *skb)
++{
++	struct skb_shared_info *shinfo;
++
++	skb_release_head_state(skb);
++	shinfo = skb_shinfo(skb);
++	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
++	atomic_set(&shinfo->dataref, 1);
++	memset(skb, 0, offsetof(struct sk_buff, tail));
++}
++
++
+ #include "dpaa_eth.h"
+ #include "dpaa_eth_common.h"
+ #ifdef CONFIG_FSL_DPAA_1588

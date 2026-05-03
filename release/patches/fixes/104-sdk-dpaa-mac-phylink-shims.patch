@@ -1,0 +1,55 @@
+SDK DPAA mac.c: shim phylink_interface_max_speed + 2500SGMII
+
+drivers/net/ethernet/freescale/sdk_dpaa/mac.c uses two NXP lf-6.x phylink
+extensions absent from mainline 6.6:
+
+  drivers/net/ethernet/freescale/sdk_dpaa/mac.c:297:35:
+    error: implicit declaration of function 'phylink_interface_max_speed'
+  drivers/net/ethernet/freescale/sdk_dpaa/mac.c:303:32:
+    error: 'PHY_INTERFACE_MODE_2500SGMII' undeclared
+
+Mainline 6.6 has PHY_INTERFACE_MODE_2500BASEX (semantically equivalent
+for SerDes 2.5 Gbps SGMII operation on this SoC) but no _2500SGMII alias
+and does not export phylink_interface_max_speed().
+
+Provide both as static inline shims at the top of mac.c (only consumer):
+
+  - PHY_INTERFACE_MODE_2500SGMII -> PHY_INTERFACE_MODE_2500BASEX (alias)
+  - phylink_interface_max_speed(phy_interface_t) -> static inline switch
+    matching the upstream phylink table (10G for XGMII/USXGMII/10GBASER,
+    2.5G for 2500BASEX, 100M for MII, 1G otherwise).
+
+--- a/drivers/net/ethernet/freescale/sdk_dpaa/mac.c
++++ b/drivers/net/ethernet/freescale/sdk_dpaa/mac.c
+@@ -68,6 +68,31 @@
+ 	| SUPPORTED_MII \
+ 	| SUPPORTED_Backplane)
+ 
++/*
++ * Mainline 6.6 compatibility shims for the lf-6.6.y SDK.
++ * Mainline does not define PHY_INTERFACE_MODE_2500SGMII (uses 2500BASEX
++ * instead) and does not export phylink_interface_max_speed().
++ */
++#ifndef PHY_INTERFACE_MODE_2500SGMII
++#define PHY_INTERFACE_MODE_2500SGMII PHY_INTERFACE_MODE_2500BASEX
++#endif
++static inline int phylink_interface_max_speed(phy_interface_t mode)
++{
++	switch (mode) {
++	case PHY_INTERFACE_MODE_XGMII:
++	case PHY_INTERFACE_MODE_USXGMII:
++	case PHY_INTERFACE_MODE_10GBASER:
++	case PHY_INTERFACE_MODE_10GKR:
++		return SPEED_10000;
++	case PHY_INTERFACE_MODE_2500BASEX:
++		return SPEED_2500;
++	case PHY_INTERFACE_MODE_MII:
++		return SPEED_100;
++	default:
++		return SPEED_1000;
++	}
++}
++
+ static struct mac_device * __cold
+ alloc_macdev(struct device *dev, size_t sizeof_priv,
+ 		void (*setup)(struct mac_device *mac_dev))

@@ -64,7 +64,7 @@ The patch set applies in fixed order: `vyos/` → `ask/` → `fixes/`. Within ea
 `scripts/patch-health.sh --source release` must report exactly:
 
 ```text
-Pass: 16   Fail: 0
+Pass: 21   Fail: 0
 0 SDK conflicts (262 files to install)
 ```
 
@@ -118,7 +118,7 @@ Standard flow for a new `kernel-6.6.137-askN`:
 # 2. Re-extract pristine tree, validate
 rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
-#   Required: Pass: 16   Fail: 0   0 SDK conflicts   262 files
+#   Required: Pass: 21   Fail: 0   0 SDK conflicts   262 files
 
 # 3. Visually verify the affected file
 patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/0XX-name.patch

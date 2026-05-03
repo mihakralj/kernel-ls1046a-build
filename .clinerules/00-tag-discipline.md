@@ -28,7 +28,7 @@ A native ARM64 build runs ~22 min. The `concurrency:` group does **not** dedupe 
 
 - Clean working tree (`git status` reports nothing).
 - Recent green `scripts/patch-health.sh --source release`:
-  - `Pass: 16   Fail: 0`
+  - `Pass: 21   Fail: 0`
   - `0 SDK conflicts`
   - `262 files to install`
 - `release/manifest.json` askN field bumped.

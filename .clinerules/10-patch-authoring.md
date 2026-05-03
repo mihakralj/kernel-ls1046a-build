@@ -26,7 +26,7 @@ After every patch edit, in order:
    ```bash
    bash scripts/patch-health.sh --source release
    ```
-   Required result: `Pass: 18   Fail: 0`, `0 SDK conflicts`, `262 files to install`.
+   Required result: `Pass: 21   Fail: 0`, `0 SDK conflicts`, `262 files to install`.
 3. Visually verify the affected hunk(s):
    ```bash
    patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/<patch>
