@@ -9,6 +9,38 @@
  
  #if defined(INCLUDE_VLAN_IFSTATS) || defined(INCLUDE_PPPoE_IFSTATS) || defined(INCLUDE_TUNNEL_IFSTATS) || defined(INCLUDE_ETHER_IFSTATS)
  #define INCLUDE_IFSTATS_SUPPORT 1
+--- a/cdx/cdx_ehash.c
++++ b/cdx/cdx_ehash.c
+@@ -105,7 +105,7 @@
+ #endif
+ static int insert_remove_vlan_hm(struct ins_entry_info *info, uint32_t iif_index, uint32_t underlying_iif_index);
+ static int create_vlan_ins_hm(struct ins_entry_info *info);
+-static int create_eth_rx_stats_hm(struct ins_entry_info *info, uint32_t iif_index, uint32_t underlying_iif_index);
++static int __maybe_unused create_eth_rx_stats_hm(struct ins_entry_info *info, uint32_t iif_index, uint32_t underlying_iif_index);
+ static int cdx_create_fragment_bufpool(void);
+ #ifdef ENABLE_INGRESS_QOS
+ static int create_preemptive_checks_hm(struct ins_entry_info *info,uint16_t queue_no);
+@@ -2546,7 +2546,7 @@
+ 	return SUCCESS;	
+ }
+ 
+-static int create_eth_rx_stats_hm(struct ins_entry_info *info, uint32_t iif_index, uint32_t underlying_iif_index)
++static int __maybe_unused create_eth_rx_stats_hm(struct ins_entry_info *info, uint32_t iif_index, uint32_t underlying_iif_index)
+ {
+ #ifdef INCLUDE_ETHER_IFSTATS
+ 	uint8_t offset;
+@@ -3298,8 +3298,9 @@
+ 	while (buffer_count < CDX_FRAG_BUFFERS_CNT)
+ 	{
+ 		refill_cnt = 0;
+-		ret = dpaa_eth_refill_bpools(bp, &refill_cnt,
+-			CONFIG_FSL_DPAA_ETH_REFILL_THRESHOLD);
++		/* ask12: lf-6.6.y dpaa_eth_refill_bpools() takes (dpa_bp, count_ptr) only;
++		 * CONFIG_FSL_DPAA_ETH_REFILL_THRESHOLD threshold arg was lf-6.12.y-only. */
++		ret = dpaa_eth_refill_bpools(bp, &refill_cnt);
+ 		if (ret < 0)
+ 		{
+ 			DPA_ERROR("%s:: Error returned for dpaa_eth_refill_bpools %d\n", __FUNCTION__,ret);
 --- a/cdx/devman.c
 +++ b/cdx/devman.c
 @@ -830,7 +830,9 @@
