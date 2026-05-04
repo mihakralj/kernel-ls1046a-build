@@ -107,3 +107,19 @@
  static struct ceetm_chnl_info qm_chnl_info[CDX_CEETM_MAX_CHANNELS];
  
  
+--- a/cdx/cdx_reassm.c
++++ b/cdx/cdx_reassm.c
+@@ -38,6 +38,13 @@
+ #include "control_socket.h"
+ #include "module_rtp_relay.h"
+ 
++/* ask15: lf-6.6.y SDK does not export register_dpaa_eth_bpool_replenish_hook
++ * (added in lf-6.12.y). The hook replenishes IP-reassembly fragment buffer
++ * pool; with no hook installed, frag-pool replenishment falls back to the
++ * synchronous path, which is not on the boot/cmm path. Stub as no-op. */
++static inline int register_dpaa_eth_bpool_replenish_hook(void *fn) { (void)fn; return 0; }
++
++
+ //#define CDX_IPR_DEBUG 1
+ 
+ #ifdef CDX_IPR_DEBUG
