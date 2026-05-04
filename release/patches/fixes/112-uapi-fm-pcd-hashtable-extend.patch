@@ -1,0 +1,100 @@
+fixes: extend ioc_fm_pcd_hash_table_params_t to match ASK fmlib UAPI (DPAA_VERSION>=11)
+
+The lf-6.6.y SDK overlay defines `ioc_fm_pcd_hash_table_params_t` without
+the DPAA_VERSION>=11 extension fields (`aging_support`, `external_hash`,
+IPR-offload sub-struct, `external_hash_params`). ASK userspace (`fmlib` /
+`fmc` / `dpa_app`) is built against the lf-6.12.y nxp-linux UAPI which DOES
+include these fields, and it issues the IOCTL with size=120 / cmd=0xc078e139.
+
+The kernel sees cmd=0xc078e139 which encodes a 120-byte struct, but the
+lf-6.6.y SDK only knows cmd=0xc040e139 (64-byte struct). The dispatcher in
+`sdk_fman/src/wrapper/lnxwrp_ioctls_fm.c::LnxwrpFmPcdIOCTL` falls into the
+`default:` case and userspace gets:
+
+    fm_pcd_lib.c:209 fm_pcd_hash_table_set: Invalid Selection
+    cdx_create_fragment_bufpool::failed to locate eth bman pool
+    dpa_app applied PCD configuration (failed rc=65280)
+
+This patch extends BOTH the UAPI struct (`ioc_fm_pcd_hash_table_params_t`)
+and the kernel-side LLD struct (`t_FmPcdHashTableParams`) with the missing
+fields. After the patch, `sizeof(ioc_fm_pcd_hash_table_params_t) == 120` and
+`FM_PCD_IOC_HASH_TABLE_SET` evaluates to `0xc078e139` — matching userspace
+fmlib exactly. The cast `(t_FmPcdHashTableParams *)param` at
+`lnxwrp_ioctls_fm.c:2353` sees identical field offsets because both structs
+get the same extension layout.
+
+Caveat: this unblocks the IOCTL gate only. The lf-6.6.y SDK
+`FM_PCD_HashTableSet()` does NOT consume `external_hash` / `aging_support`,
+so hash tables still allocate in on-chip MURAM. If `cdx_pcd.xml` requests
+more keysets than 384 KiB MURAM can hold, downstream `AllocStatsObjs` will
+still fail — that is a separate (Chain 2) consumer-side issue requiring
+fmlib XML trim, not a producer fix.
+
+Field naming: UAPI uses snake_case (matches nxp-linux UAPI on consumer side
+and existing snake_case fields in this UAPI header). LLD uses camelCase
+(matches existing camelCase convention in fm_pcd_ext.h). The IPR-offload
+inner struct keeps snake_case in BOTH (matches reference exactly).
+
+--- a/include/uapi/linux/fmd/Peripherals/fm_pcd_ioctls.h
++++ b/include/uapi/linux/fmd/Peripherals/fm_pcd_ioctls.h
+@@ -1511,6 +1511,30 @@
+ 
+     ioc_fm_pcd_cc_next_engine_params_t   cc_next_engine_params_for_miss;
+                                                             /**< Parameters for defining the next engine when a key is not matched */
++
++    bool                        aging_support;              /**< TRUE to enable aging support for all keys of this hash table.
++                                                                 ASK fmlib (DPAA_VERSION>=11) sets this. lf-6.6.y SDK ignores it. */
++#if (DPAA_VERSION >= 11)
++    bool                        external_hash;              /**< TRUE to allocate the hash bucket array in DDR via USDPAA instead
++                                                                 of on-chip MURAM. Required when the table size exceeds MURAM.
++                                                                 ASK fmlib sets this; lf-6.6.y SDK ignores it. */
++#ifndef EXCLUDE_FMAN_IPR_OFFLOAD
++    uint32_t                    table_type;                 /**< IP-reassembly table type (only valid for reassembly tables) */
++    struct {
++        uint32_t                timeout_val;                /**< reassembly timeout */
++        uint32_t                timeout_fqid;               /**< fqid for reassembly failures */
++        uint32_t                max_frags;                  /**< max allowed fragments */
++        uint32_t                min_frag_size;              /**< min allowed frag size except last frag */
++        uint32_t                max_sessions;               /**< max conn reassembly sessions */
++    };
++#endif /* !EXCLUDE_FMAN_IPR_OFFLOAD */
++    struct {
++        uint8_t                 data_mem_id;                /**< Memory partition ID for the external hash table buckets and contexts;
++                                                                 Must not cross 4GB boundaries. */
++        uint16_t                data_liodn_offs;            /**< LIODN offset for accessing the external hash table buckets and contexts. */
++        uintptr_t               miss_monitor_addr;          /**< User-allocated miss monitor address. */
++    } external_hash_params;
++#endif /* (DPAA_VERSION >= 11) */
+     void                        *id;
+ } ioc_fm_pcd_hash_table_params_t;
+ 
+--- a/drivers/net/ethernet/freescale/sdk_fman/inc/Peripherals/fm_pcd_ext.h
++++ b/drivers/net/ethernet/freescale/sdk_fman/inc/Peripherals/fm_pcd_ext.h
+@@ -2006,6 +2006,27 @@
+ 
+     t_FmPcdCcNextEngineParams   ccNextEngineParamsForMiss;  /**< Parameters for defining the next engine when a key is not matched */
+ 
++    bool                        agingSupport;               /**< TRUE to enable aging support for all keys of this hash table.
++                                                                 ASK fmlib (DPAA_VERSION>=11) sets this. lf-6.6.y SDK ignores it. */
++#if (DPAA_VERSION >= 11)
++    bool                        externalHash;               /**< TRUE to allocate hash bucket array in DDR via USDPAA instead of MURAM.
++                                                                 ASK fmlib sets this; lf-6.6.y SDK ignores it. */
++#ifndef EXCLUDE_FMAN_IPR_OFFLOAD
++    uint32_t                    table_type;                 /**< IP-reassembly table type */
++    struct {
++        uint32_t                timeout_val;                /**< reassembly timeout */
++        uint32_t                timeout_fqid;               /**< fqid for reassembly failures */
++        uint32_t                max_frags;                  /**< max allowed fragments */
++        uint32_t                min_frag_size;              /**< min allowed frag size except last frag */
++        uint32_t                max_sessions;               /**< max conn reassembly sessions */
++    };
++#endif /* !EXCLUDE_FMAN_IPR_OFFLOAD */
++    struct {
++        uint8_t                 dataMemId;                  /**< Memory partition ID for the external hash table buckets and contexts. */
++        uint16_t                dataLiodnOffs;              /**< LIODN offset for accessing the external hash table buckets and contexts. */
++        uintptr_t               missMonitorAddr;            /**< User-allocated miss monitor address. */
++    } externalHashParams;
++#endif /* (DPAA_VERSION >= 11) */
+ } t_FmPcdHashTableParams;
+ 
+ /**************************************************************************//**
