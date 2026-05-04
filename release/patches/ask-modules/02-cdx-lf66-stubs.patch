@@ -89,3 +89,21 @@
  		}
  	}
  	return qman_cb_dqrr_consume;
+--- a/cdx/cdx_ceetm_app.c
++++ b/cdx/cdx_ceetm_app.c
+@@ -19,6 +19,15 @@
+ #include "cdx_ceetm_gdef.h"
+ #include "cdx_common.h"
+ 
++/* ask14: lf-6.6.y SDK does not export CEETM helpers added in lf-6.12.y.
++ * CEETM is TX-QoS shaping; not on the boot path / cmm path. Stub the
++ * 4 missing externs as no-ops so the cdx OOT module links. */
++static inline uint16_t FmPcdPlcrProfileGetAbsoluteId(void *h) { (void)h; return 0; }
++static inline int dpa_register_ceetm_get_egress_fq(void *a, void *b) { (void)a; (void)b; return 0; }
++static inline void dpa_enable_ceetm(struct net_device *nd) { (void)nd; }
++static inline int qman_ceetm_configure_mapping_shaper_tcfc(void *o) { (void)o; return 0; }
++
++
+ static struct ceetm_chnl_info qm_chnl_info[CDX_CEETM_MAX_CHANNELS];
+ 
+ 
