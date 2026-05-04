@@ -123,3 +123,19 @@
  //#define CDX_IPR_DEBUG 1
  
  #ifdef CDX_IPR_DEBUG
+--- a/cdx/cdx_qos.c
++++ b/cdx/cdx_qos.c
+@@ -48,6 +48,13 @@
+ #include "cdx_ceetm_gdef.h" 
+ #include "cdx_defs.h"
+ 
++/* ask16: lf-6.6.y SDK does not export FmPcdPlcrProfileGetAbsoluteId
++ * (added in lf-6.12.y). Used by 2 TUs (cdx_ceetm_app.c covered separately).
++ * Returns the policer-profile ID; on lf-6.6.y the cdx side does not consume
++ * this value on the boot/cmm path. Stub as no-op returning 0. */
++static inline uint16_t FmPcdPlcrProfileGetAbsoluteId(void *h) { (void)h; return 0; }
++
++
+ //#define QOS_DEBUG	1
+ 
+ //per port fast forward policer information and defaults
