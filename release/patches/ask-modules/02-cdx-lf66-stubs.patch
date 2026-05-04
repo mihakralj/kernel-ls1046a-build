@@ -158,8 +158,8 @@
  #define DPAA_VSP_MAX_BUF_COUNT 512
 --- a/cdx/cdx_cmdhandler.c
 +++ b/cdx/cdx_cmdhandler.c
-@@ -184,7 +184,12 @@
- return rc;
+@@ -192,7 +192,12 @@
+ 	return rc;
  }
  
 -void __exit cdx_cmdhandler_exit(void)
@@ -170,5 +170,5 @@
 + * discarded after init. The body is short and harmless to retain. */
 +void cdx_cmdhandler_exit(void)
  {
- DPRINT("\n");
+ 	DPRINT("\n");
  
