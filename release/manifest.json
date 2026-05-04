@@ -13,6 +13,6 @@
   "nxp_sdk_branch":     "lf-6.6.y",
   "nxp_sdk_sha":        "e0f9e2afd4cff3f02d71891244b4aa5899dfc786",
   "sdk_source_count":   265,
-  "ask_iteration":      "ask20",
+  "ask_iteration":      "ask21",
   "output_dir":         "/root/lts_6.6_ls1046a/work/derived"
 }
