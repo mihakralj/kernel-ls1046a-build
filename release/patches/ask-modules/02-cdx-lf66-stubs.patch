@@ -156,3 +156,19 @@
  static struct dpa_bp *gs_dpa_vsp_bp;		/* VSP Buffer pool */
  
  #define DPAA_VSP_MAX_BUF_COUNT 512
+--- a/cdx/cdx_cmdhandler.c
++++ b/cdx/cdx_cmdhandler.c
+@@ -184,7 +184,12 @@
+ return rc;
+ }
+ 
+-void __exit cdx_cmdhandler_exit(void)
++/* ask18: drop __exit annotation. cdx_cmdhandler_exit() is called from
++ * cdx_main.c::cdx_ctrl_deinit() which itself is registered as a
++ * deinit-callback (.text section). modpost flags the cross-section
++ * call (.text -> .exit.text) because __exit-tagged code can be
++ * discarded after init. The body is short and harmless to retain. */
++void cdx_cmdhandler_exit(void)
+ {
+ DPRINT("\n");
+ 
