@@ -53,7 +53,7 @@
  			l2_info->dscp_vlanpcp_map_enable = 
  				cdx_get_tx_dscp_vlanpcp_map_enable(iface->eth_info.portid);
  			if ((l2_info->dscp_vlanpcp_map_enable) &&
-@@ -2690,14 +2692,18 @@
+@@ -2690,12 +2692,16 @@
  
  void dpa_update_timestamp(uint32_t ts)
  {
@@ -74,5 +74,18 @@
 +	(void)id;
 +	return 0;
  }
- 
- 
+--- a/cdx/devoh.c
++++ b/cdx/devoh.c
+@@ -516,7 +516,12 @@
+ 			}
+ 		} else {
+ 			printk(KERN_CRIT "%s::freeing sg buffers now\n", __FUNCTION__);
++			/* ask13: lf-6.6.y declares dpa_fd_release() with __attribute__((nonnull));
++			 * the offline-port RX-error path legitimately has no associated netdev. */
++			#pragma GCC diagnostic push
++			#pragma GCC diagnostic ignored "-Wnonnull"
+ 			dpa_fd_release(NULL, fd);
++			#pragma GCC diagnostic pop
+ 		}
+ 	}
+ 	return qman_cb_dqrr_consume;
