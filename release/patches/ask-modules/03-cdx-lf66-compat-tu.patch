@@ -42,7 +42,7 @@ Closes the remaining modpost ERRORs from the ask20 CI run.
 
 --- /dev/null
 +++ b/cdx/lf66_compat.c
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,103 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * cdx/lf66_compat.c - non-static compat stubs for lf-6.12.y SDK helpers
@@ -151,11 +151,12 @@ Closes the remaining modpost ERRORs from the ask20 CI run.
 +++ b/cdx/Makefile
 @@ -71,7 +71,8 @@
  voip.o\
- cdx_qos.o\
- vsp_cfg.o\
--procfs.o
-+procfs.o\
+ 		cdx_qos.o\
+ 		vsp_cfg.o\
+-		procfs.o
++		procfs.o\
 +lf66_compat.o
  
  ####end of includes
  
+
