@@ -139,3 +139,20 @@
  //#define QOS_DEBUG	1
  
  //per port fast forward policer information and defaults
+--- a/cdx/vsp_cfg.c
++++ b/cdx/vsp_cfg.c
+@@ -27,6 +27,14 @@
+ #include "portdefs.h"
+ #include "cdx_defs.h"
+ #include "misc.h"
++
++/* ask17: lf-6.6.y SDK does not export _dpa_bp_free (added in lf-6.12.y).
++ * lf-6.6.y exports dpa_bp_free(struct dpa_priv_s *) and _dpa_bp_free_pf(void *)
++ * but no symbol with this signature. The single call site in cdx
++ * dpa_remove_virt_storage_profile() releases the VSP buffer pool; VSP is
++ * not on the boot/cmm path. Stub as no-op. */
++static inline void _dpa_bp_free(void *bp) { (void)bp; }
++
+ static struct dpa_bp *gs_dpa_vsp_bp;		/* VSP Buffer pool */
+ 
+ #define DPAA_VSP_MAX_BUF_COUNT 512
