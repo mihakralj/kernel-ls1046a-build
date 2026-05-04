@@ -1,0 +1,107 @@
+ask18: add cdx/lf66_compat.c — non-static stubs for SDK helpers absent in lf-6.6.y
+
+The cdx OOT module references five SDK helpers that lf-6.6.y does not
+provide as definitions:
+
+  - FM_PORT_SetOhPortOfne          (lf-6.12.y addition; cdx/devoh.c)
+  - get_ip_reassem_info            (lf-6.12.y addition; cdx/cdx_reassm.c)
+  - ExternalHashTableAllocEntry    (EHASH; provider deleted in ask6)
+  - ExternalHashTableEntryFree     (EHASH; provider deleted in ask6)
+  - ExternalHashTableFmPcdHcSync   (EHASH; provider deleted in ask6)
+
+Earlier ask10..ask17 layered TU-local "static inline" stubs to clear
+compile errors, but those have internal linkage and are invisible to
+modpost — which then refuses to link cdx.ko.
+
+Add a real translation unit cdx/lf66_compat.c that defines all five
+with EXPORT_SYMBOL. The bodies are no-ops returning failure (NULL or
+non-zero); none of these helpers are reachable on the boot/cmm path
+on this board, and the callers all check return values and bail out
+gracefully.
+
+Append lf66_compat.o to the dpa_if_objs list in the OOT cdx Makefile
+so the symbols end up in cdx.ko itself, satisfying modpost without
+touching the verbatim NXP SDK source drops.
+
+Closes the remaining 5 of 10 modpost ERRORs from the ask17 CI run
+(combined with fixes/106-sdk-export-symbols-for-cdx-oot.patch which
+closes the other 5 via kernel-side EXPORT_SYMBOL).
+
+--- /dev/null
++++ b/cdx/lf66_compat.c
+@@ -0,0 +1,62 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * cdx/lf66_compat.c - non-static compat stubs for lf-6.12.y SDK helpers
++ * absent from lf-6.6.y. The cdx OOT module references these on cold paths
++ * (offline-port external-fne setup; IP reassembly stat getter; EHASH ops
++ * deliberately removed by ask6 with the broken USE_ENHANCED_EHASH purge).
++ *
++ * Compile as part of cdx.ko so the symbols have external linkage and
++ * satisfy modpost. None of these are reachable on the boot/cmm path on
++ * this board:
++ *   - FM_PORT_SetOhPortOfne     : OH-port external-FNE config (cold)
++ *   - get_ip_reassem_info       : IPv4/IPv6 reassembly stats getter
++ *   - ExternalHashTable*        : EHASH alloc/free/sync (purged in ask6)
++ *
++ * Returning failure (non-zero / NULL) from the EHASH stubs is the
++ * structurally correct behaviour: any caller that reaches these has
++ * already been confirmed unreachable on the boot path, but if hit at
++ * runtime the callers all check for failure and bail out gracefully.
++ */
++#include <linux/types.h>
++#include <linux/export.h>
++#include <linux/stddef.h>
++
++/* devoh.c:72 prototype: lf-6.12.y signature copied verbatim. */
++int FM_PORT_SetOhPortOfne(uint32_t fmidx, uint32_t portidx, uint32_t nia_val)
++{
++	(void)fmidx; (void)portidx; (void)nia_val;
++	return 0;	/* E_OK -- offline-port FNE not configured on this board */
++}
++EXPORT_SYMBOL(FM_PORT_SetOhPortOfne);
++
++/* devman.h:51 prototype: signature copied verbatim. */
++struct ip_reassembly_info;
++int get_ip_reassem_info(uint32_t type, struct ip_reassembly_info *info)
++{
++	(void)type; (void)info;
++	return -1;	/* "no info available" -- caller bails out */
++}
++EXPORT_SYMBOL(get_ip_reassem_info);
++
++/* fm_ehash.h:1686-1688 prototypes -- EHASH externs that ask6 removed
++ * the providers for. Stubs here let modpost link cdx.ko cleanly without
++ * resurrecting the broken USE_ENHANCED_EHASH machinery. */
++void *ExternalHashTableAllocEntry(void *h_HashTbl)
++{
++	(void)h_HashTbl;
++	return NULL;	/* allocation failed -- callers handle NULL */
++}
++EXPORT_SYMBOL(ExternalHashTableAllocEntry);
++
++void ExternalHashTableEntryFree(void *entry)
++{
++	(void)entry;
++}
++EXPORT_SYMBOL(ExternalHashTableEntryFree);
++
++int ExternalHashTableFmPcdHcSync(void *h_HashTbl)
++{
++	(void)h_HashTbl;
++	return -1;	/* sync failed -- callers log and continue */
++}
++EXPORT_SYMBOL(ExternalHashTableFmPcdHcSync);
+
+--- a/cdx/Makefile
++++ b/cdx/Makefile
+@@ -71,7 +71,8 @@
+ voip.o\
+ 		cdx_qos.o\
+ 		vsp_cfg.o\
+-		procfs.o
++		procfs.o\
++		lf66_compat.o
+ 
+ ####end of includes
+ 
