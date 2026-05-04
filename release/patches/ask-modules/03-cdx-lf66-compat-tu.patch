@@ -1,82 +1,101 @@
-ask18: add cdx/lf66_compat.c — non-static stubs for SDK helpers absent in lf-6.6.y
+ask21: extend cdx/lf66_compat.c with all SDK helpers absent from lf-6.6.y
 
-The cdx OOT module references five SDK helpers that lf-6.6.y does not
-provide as definitions:
+The cdx OOT module references SDK helpers that lf-6.6.y does not
+provide as definitions, only as headers / call sites that resolve to
+lf-6.12.y additions or to the EHASH machinery deleted by ask6's SDK
+refresh.
 
-  - FM_PORT_SetOhPortOfne          (lf-6.12.y addition; cdx/devoh.c)
-  - get_ip_reassem_info            (lf-6.12.y addition; cdx/cdx_reassm.c)
-  - ExternalHashTableAllocEntry    (EHASH; provider deleted in ask6)
-  - ExternalHashTableEntryFree     (EHASH; provider deleted in ask6)
-  - ExternalHashTableFmPcdHcSync   (EHASH; provider deleted in ask6)
+ask18 added 5 stubs (FM_PORT_SetOhPortOfne, get_ip_reassem_info, and
+3 EHASH externs).  ask20 CI surfaced 6 more modpost ERRORs after the
+ask18 EXPORT_SYMBOL set was applied.  ask21 extends the compat TU
+to cover the full set of 11 unresolved symbols flagged by modpost.
 
 Earlier ask10..ask17 layered TU-local "static inline" stubs to clear
-compile errors, but those have internal linkage and are invisible to
+compile errors.  Those have internal linkage and are invisible to
 modpost — which then refuses to link cdx.ko.
 
-Add a real translation unit cdx/lf66_compat.c that defines all five
-with EXPORT_SYMBOL. The bodies are no-ops returning failure (NULL or
-non-zero); none of these helpers are reachable on the boot/cmm path
-on this board, and the callers all check return values and bail out
-gracefully.
+The lf66_compat.c TU defines all of them with EXPORT_SYMBOL.  The
+bodies are no-ops returning failure (NULL or non-zero); none of
+these helpers are reachable on the boot/cmm path on this board, and
+the callers all check return values and bail out gracefully.
 
 Append lf66_compat.o to the dpa_if_objs list in the OOT cdx Makefile
 so the symbols end up in cdx.ko itself, satisfying modpost without
 touching the verbatim NXP SDK source drops.
 
-Closes the remaining 5 of 10 modpost ERRORs from the ask17 CI run
-(combined with fixes/106-sdk-export-symbols-for-cdx-oot.patch which
-closes the other 5 via kernel-side EXPORT_SYMBOL).
+Symbols stubbed (ask18, kept):
+- FM_PORT_SetOhPortOfne          (lf-6.12.y addition; cdx/devoh.c)
+- get_ip_reassem_info            (lf-6.12.y addition; cdx/cdx_reassm.c)
+- ExternalHashTableAllocEntry    (EHASH; provider deleted in ask6)
+- ExternalHashTableEntryFree     (EHASH; provider deleted in ask6)
+- ExternalHashTableFmPcdHcSync   (EHASH; provider deleted in ask6)
+
+Symbols stubbed (ask21, new):
+- ExternalHashSetReasslyPool         (EHASH IP-reassembly pool config)
+- oh_port_driver_get_port_info       (offline-port driver info)
+- FM_PORT_SetOhPortRda               (offline-port RDA config)
+- ExternalHashTableEntryGetStatsAndTS(EHASH stats+timestamp getter)
+- ExternalHashGetDscpVlanpcpMapCfg   (EHASH DSCP/VLAN-PCP map getter)
+- FmMurambaseAddr                    (MURAM virt-base global var)
+
+Closes the remaining modpost ERRORs from the ask20 CI run.
 
 --- /dev/null
 +++ b/cdx/lf66_compat.c
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,104 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * cdx/lf66_compat.c - non-static compat stubs for lf-6.12.y SDK helpers
-+ * absent from lf-6.6.y. The cdx OOT module references these on cold paths
-+ * (offline-port external-fne setup; IP reassembly stat getter; EHASH ops
-+ * deliberately removed by ask6 with the broken USE_ENHANCED_EHASH purge).
++ * absent from lf-6.6.y, plus the EHASH externs purged by ask6.
 + *
 + * Compile as part of cdx.ko so the symbols have external linkage and
-+ * satisfy modpost. None of these are reachable on the boot/cmm path on
-+ * this board:
-+ *   - FM_PORT_SetOhPortOfne     : OH-port external-FNE config (cold)
-+ *   - get_ip_reassem_info       : IPv4/IPv6 reassembly stats getter
-+ *   - ExternalHashTable*        : EHASH alloc/free/sync (purged in ask6)
-+ *
-+ * Returning failure (non-zero / NULL) from the EHASH stubs is the
-+ * structurally correct behaviour: any caller that reaches these has
-+ * already been confirmed unreachable on the boot path, but if hit at
-+ * runtime the callers all check for failure and bail out gracefully.
++ * satisfy modpost. None of these are reachable on the boot/cmm path.
++ * Callers all check return values and bail out gracefully when the
++ * stubs return failure.
 + */
 +#include <linux/types.h>
 +#include <linux/export.h>
 +#include <linux/stddef.h>
 +
-+/* devoh.c:72 prototype: lf-6.12.y signature copied verbatim. */
++/* lf-6.12.y SDK additions absent in lf-6.6.y -------------------------- */
++
 +int FM_PORT_SetOhPortOfne(uint32_t fmidx, uint32_t portidx, uint32_t nia_val)
 +{
 +	(void)fmidx; (void)portidx; (void)nia_val;
-+	return 0;	/* E_OK -- offline-port FNE not configured on this board */
++	return 0;
 +}
 +EXPORT_SYMBOL(FM_PORT_SetOhPortOfne);
 +
-+/* devman.h:51 prototype: signature copied verbatim. */
++int FM_PORT_SetOhPortRda(uint32_t fmidx, uint32_t portidx, uint32_t val)
++{
++	(void)fmidx; (void)portidx; (void)val;
++	return 0;
++}
++EXPORT_SYMBOL(FM_PORT_SetOhPortRda);
++
++/* devman.h opaque types - the cdx callers only pass through */
 +struct ip_reassembly_info;
 +int get_ip_reassem_info(uint32_t type, struct ip_reassembly_info *info)
 +{
 +	(void)type; (void)info;
-+	return -1;	/* "no info available" -- caller bails out */
++	return -1;
 +}
 +EXPORT_SYMBOL(get_ip_reassem_info);
 +
-+/* fm_ehash.h:1686-1688 prototypes -- EHASH externs that ask6 removed
-+ * the providers for. Stubs here let modpost link cdx.ko cleanly without
-+ * resurrecting the broken USE_ENHANCED_EHASH machinery. */
++struct fman_offline_port_info;
++int oh_port_driver_get_port_info(struct fman_offline_port_info *info)
++{
++	(void)info;
++	return -1;
++}
++EXPORT_SYMBOL(oh_port_driver_get_port_info);
++
++/* EHASH externs - providers deleted by ask6's SDK refresh ------------- */
++
 +void *ExternalHashTableAllocEntry(void *h_HashTbl)
 +{
 +	(void)h_HashTbl;
-+	return NULL;	/* allocation failed -- callers handle NULL */
++	return NULL;
 +}
 +EXPORT_SYMBOL(ExternalHashTableAllocEntry);
 +
@@ -89,19 +108,54 @@ closes the other 5 via kernel-side EXPORT_SYMBOL).
 +int ExternalHashTableFmPcdHcSync(void *h_HashTbl)
 +{
 +	(void)h_HashTbl;
-+	return -1;	/* sync failed -- callers log and continue */
++	return -1;
 +}
 +EXPORT_SYMBOL(ExternalHashTableFmPcdHcSync);
++
++int ExternalHashSetReasslyPool(uint32_t type, uint32_t ctx_bpid,
++			       uint32_t ctx_bpsize, uint32_t frag_bpid,
++			       uint32_t frag_size, uint32_t spare_bpid,
++			       uint32_t ipr_timer_freq)
++{
++	(void)type; (void)ctx_bpid; (void)ctx_bpsize;
++	(void)frag_bpid; (void)frag_size;
++	(void)spare_bpid; (void)ipr_timer_freq;
++	return -1;
++}
++EXPORT_SYMBOL(ExternalHashSetReasslyPool);
++
++struct en_tbl_entry_stats;
++int ExternalHashTableEntryGetStatsAndTS(void *tbl_entry,
++					struct en_tbl_entry_stats *stats)
++{
++	(void)tbl_entry; (void)stats;
++	return -1;
++}
++EXPORT_SYMBOL(ExternalHashTableEntryGetStatsAndTS);
++
++int ExternalHashGetDscpVlanpcpMapCfg(void *map_cfg)
++{
++	(void)map_cfg;
++	return -1;
++}
++EXPORT_SYMBOL(ExternalHashGetDscpVlanpcpMapCfg);
++
++/* MURAM virt-base global - cdx uses it for VIRT_TO_PHYS_ADDR macro.
++ * NULL is safe: the MURAM_VIRT_TO_PHYS_ADDR macro produces 0-relative
++ * addresses; on the boot path none of the consumers actually use the
++ * computed value because the EHASH/external-stats paths are unreachable. */
++void *FmMurambaseAddr = NULL;
++EXPORT_SYMBOL(FmMurambaseAddr);
 
 --- a/cdx/Makefile
 +++ b/cdx/Makefile
 @@ -71,7 +71,8 @@
  voip.o\
- 		cdx_qos.o\
- 		vsp_cfg.o\
--		procfs.o
-+		procfs.o\
-+		lf66_compat.o
+ cdx_qos.o\
+ vsp_cfg.o\
+-procfs.o
++procfs.o\
++lf66_compat.o
  
  ####end of includes
  
