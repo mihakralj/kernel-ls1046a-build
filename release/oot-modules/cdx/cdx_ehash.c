@@ -354,10 +354,13 @@ static int Get_Tnl_Ethertype(int mode )
 
 static int fill_key_info(PCtEntry entry, uint8_t *keymem, uint32_t port_id)
 {
-	union dpa_key *key;
-	unsigned char *saddr, *daddr;
-	int i;
-	uint32_t key_size;
+union dpa_key *key;
+unsigned char *saddr, *daddr;
+/* ASK-edit (ask33): drop unused `int i;` — fires -Werror=unused-variable
+ * under the producer's -Werror cflags. The variable was never read or
+ * written anywhere in fill_key_info(); originated as dead code in the
+ * NXP source. */
+uint32_t key_size;
 
 	key = (union dpa_key *)keymem;
 	//portid added to key
