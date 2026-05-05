@@ -26,9 +26,11 @@
 #include <linux/ppp_defs.h>
 #include <linux/highmem.h>
 #include <linux/proc_fs.h>
-#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
+/* ASK-edit (ask34): include xfrm.h unconditionally. The header defines
+ * struct xfrm_state unconditionally; only the offload-specific helpers
+ * we redefine below depend on CONFIG_INET_IPSEC_OFFLOAD.
+ */
 #include <net/xfrm.h>
-#endif
 
 #include <linux/spinlock.h>
 #include <linux/fsl_bman.h>
@@ -128,6 +130,22 @@ struct ipsec_info {
 static struct ipsec_info ipsecinfo;
 #if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
 extern struct xfrm_state *xfrm_state_lookup_byhandle(struct net *net, u16 handle);
+#else
+/* ASK-edit (ask34): on 6.6.y INET_IPSEC_OFFLOAD is unconditionally =n
+ * (xfrm_state lacks the handle/byh fields the offload patch ask/040 adds
+ * inside the same gate). The kernel-side definition is therefore not
+ * compiled; provide a TU-local NULL-returning stub so the OOT cdx
+ * module links. Both callers (cdx_get_xfrm_state_of_sa and the dqrr
+ * IPsec exception handler) already handle NULL via error/drop paths,
+ * which is the correct behavior when offload is disabled.
+ */
+static inline struct xfrm_state *
+xfrm_state_lookup_byhandle(struct net *net, u16 handle)
+{
+	(void)net;
+	(void)handle;
+	return NULL;
+}
 #endif
 
 /* Forward declarations for internal functions */
