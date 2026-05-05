@@ -339,7 +339,7 @@ __FUNCTION__, port_info->name);
 kfree(uspace_dist);
 return -EIO;
 } else {
-strcpy(port_info->name, dev->name);
+strscpy(port_info->name, dev->name, sizeof(port_info->name)); /* B6 P1.05 */
 }
 }
 #ifdef DPA_CFG_DEBUG

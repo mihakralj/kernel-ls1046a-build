@@ -874,7 +874,7 @@ static U16 stat_tunnel_Get_Session_Snapshot(int hash_index, int stat_tunnel_entr
 	slist_for_each(pStatTunnelEntry, entry, &tunnel_name_cache[hash_index], list)
 	{
 		memset(pStatTunnelSnapshot, 0, sizeof(StatTunnelEntryResponse));
-		strcpy((char *)pStatTunnelSnapshot->ifname, get_onif_name(pStatTunnelEntry->itf.index));
+		strscpy((char *)pStatTunnelSnapshot->ifname, get_onif_name(pStatTunnelEntry->itf.index), sizeof(pStatTunnelSnapshot->ifname)); /* B6 P1.05 */
 		if ((ret = tunnel_stats_get(pStatTunnelEntry, pStatTunnelSnapshot,
 						gStatTunnelQueryStatus & STAT_TUNNEL_QUERY_RESET)) != NO_ERR)
 		{
