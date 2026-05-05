@@ -152,17 +152,13 @@ end_group
 # ── Apply ASK-modules patches (6.6 compat, Mono-specific fixes) ─────────
 #
 # Patches in release/patches/ask-modules/*.patch are applied in sort order
-# against $SRC_ROOT (the extracted cdx/fci/auto_bridge tree). These patches
-# track changes that the 6.6 reference repo (mihakralj/ask-ls1046a-6.6)
-# made on top of the original we-are-mono/ASK sources — e.g. 6.6 API drift
-# (const struct ctl_table), WiFi-offload disablement, defensive NULL
-# checks, crash-safe userspace pointer handling in dpa_cfg.c.
+# against $SRC_ROOT (the extracted cdx/fci/auto_bridge tree).
 #
-# Rationale for applying at build time (rather than pre-patching the git
-# archive): the upstream ASK tree is pulled via `git archive` from the
-# bare mirror and is intentionally pristine — these patches are OUR
-# downstream deltas, versioned in this repo so they can be reviewed
-# independently of the upstream ASK SHA pin.
+# Post-pivot (versions.lock note), the upstream and reference are the
+# same repo (mihakralj/ask-ls1046a-6.6) — the audit-v1-tagged tree is
+# already 6.6-API-correct, so this directory is empty by default. The
+# loop is retained for ad-hoc downstream patches (e.g. board-specific
+# overrides) that don't belong upstream.
 PATCH_DIR="$REPO_ROOT/release/patches/ask-modules"
 if [[ -d "$PATCH_DIR" ]]; then
     shopt -s nullglob
@@ -363,7 +359,7 @@ Description: NXP ASK out-of-tree kernel modules (cdx, fci, auto_bridge)
  Without this package installed, the in-tree ASK hook sites remain present
  but dormant: every packet falls through to the Linux slow path.
  .
- Built from we-are-mono/ASK @ ${ASK_SHA:0:12} against linux-$KVER.
+ Built from mihakralj/ask-ls1046a-6.6 @ ${ASK_SHA:0:12} against linux-$KVER.
 EOF
 
 cat > "$DEBIAN_DIR/postinst" <<EOF

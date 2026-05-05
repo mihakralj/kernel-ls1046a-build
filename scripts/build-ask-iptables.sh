@@ -192,7 +192,7 @@ PATCH_FILE="$WS/0999-ask-qosmark-extensions.patch"
         "${ASK_SHA:0:12}"
     printf ' These compile into libxt_{qos,QOS}{mark,connmark}.so xtables\n'
     printf ' plugins shipped inside the iptables binary package.\n'
-    printf 'Origin: upstream, https://github.com/we-are-mono/ASK @ %s\n' \
+    printf 'Origin: upstream, https://github.com/mihakralj/ask-ls1046a-6.6 @ %s\n' \
         "${ASK_SHA:0:12}"
     printf 'Forwarded: not-needed\n'
     printf 'Last-Update: %s\n\n' "$(date +%F)"

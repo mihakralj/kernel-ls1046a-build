@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-upstream.sh — walk new commits on we-are-mono/ASK mt-6.12.y since the
+# sync-upstream.sh — walk new commits on mihakralj/ask-ls1046a-6.6 main since the
 # UPSTREAM_BASELINE pinned in versions.lock, and classify each into tiers:
 #
 #   T1  direct-apply   userspace / OOT modules / lib patches
@@ -31,7 +31,7 @@ if [[ -f "$REPO_ROOT/versions.lock" ]]; then
     source "$REPO_ROOT/versions.lock"
 fi
 
-UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-mt-6.12.y}"
+UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-main}"
 
 # Ensure upstream mirror exists
 [[ -d "$WORK_DIR/upstream.git" ]] || "$SCRIPTS_DIR/fetch-upstream.sh"

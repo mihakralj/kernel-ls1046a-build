@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# fetch-upstream.sh — mirror the true ASK upstream (we-are-mono/ASK)
+# fetch-upstream.sh — mirror the ASK source repo (mihakralj/ask-ls1046a-6.6)
 # into a bare git dir so we can walk commit history and extract snapshots
 # of specific files at specific SHAs.
 #
-# This is the ACTIVE upstream that keeps moving. The derivation engine will
-# compute "what changed on upstream between BASELINE SHA and HEAD of mt-6.12.y"
-# and apply that delta onto the reference (6.6-translated) patches.
+# Post-pivot (see versions.lock note), this is the same repo as
+# REFERENCE_REPO. The derivation engine now compares "what changed in this
+# repo between BASELINE SHA and HEAD of UPSTREAM_BRANCH" — incremental
+# tracking within a single tree, not cross-branch derivation.
 #
 # Usage:
 #   ./scripts/fetch-upstream.sh
 #
 # Env vars:
-#   UPSTREAM_REPO     default: https://github.com/we-are-mono/ASK.git
-#   UPSTREAM_BRANCH   default: mt-6.12.y
+#   UPSTREAM_REPO     default: https://github.com/mihakralj/ask-ls1046a-6.6.git
+#   UPSTREAM_BRANCH   default: main
 #
 # Side effects:
 #   work/upstream.git/        (bare mirror)
@@ -29,8 +30,8 @@ if [[ -f "$REPO_ROOT/versions.lock" ]]; then
     source "$REPO_ROOT/versions.lock"
 fi
 
-UPSTREAM_REPO="${UPSTREAM_REPO:-https://github.com/we-are-mono/ASK.git}"
-UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-mt-6.12.y}"
+UPSTREAM_REPO="${UPSTREAM_REPO:-https://github.com/mihakralj/ask-ls1046a-6.6.git}"
+UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-main}"
 
 MIRROR="${WORK_DIR}/upstream.git"
 
