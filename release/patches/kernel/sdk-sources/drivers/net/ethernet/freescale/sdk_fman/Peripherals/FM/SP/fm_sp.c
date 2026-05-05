@@ -578,6 +578,20 @@ t_Error FM_VSP_Free(t_Handle h_FmVsp)
 }
 EXPORT_SYMBOL(FM_VSP_Free);
 
+/* ASK-edit (ask35): the lf-6.6.y SDK declares FM_VSP_GetRelativeProfileId()
+ * in fm_vsp_ext.h but ships no definition (the body lives in lf-6.12.y only).
+ * The cdx OOT module references it via vsp_cfg.c, so modpost on cdx.ko fails
+ * with an undefined-symbol error. Provide the trivial getter (the field is
+ * already populated in FM_VSP_Config at fm_sp.c:453) and export it.
+ */
+uint8_t FM_VSP_GetRelativeProfileId(t_Handle h_FmVsp)
+{
+    t_FmVspEntry *p_FmVspEntry = (t_FmVspEntry *)h_FmVsp;
+    SANITY_CHECK_RETURN_VALUE(p_FmVspEntry, E_INVALID_HANDLE, 0);
+    return p_FmVspEntry->relativeProfileId;
+}
+EXPORT_SYMBOL(FM_VSP_GetRelativeProfileId);
+
 t_Error FM_VSP_ConfigBufferPrefixContent(t_Handle h_FmVsp, t_FmBufferPrefixContent *p_FmBufferPrefixContent)
 {
     t_FmVspEntry *p_FmVspEntry = (t_FmVspEntry*)h_FmVsp;
