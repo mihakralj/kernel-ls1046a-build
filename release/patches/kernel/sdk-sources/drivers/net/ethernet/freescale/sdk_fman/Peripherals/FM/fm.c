@@ -3444,16 +3444,7 @@ t_Handle FM_Config(t_FmParams *p_FmParam)
         }
         memcpy(p_Fm->firmware.p_Code, p_FmParam->firmware.p_Code ,p_Fm->firmware.size);
     }
-#else
-    p_Fm->firmware.size                        = 0;
-    {
-        p_Fm->firmware.size = sizeof(fman_firmware);
-        p_Fm->firmware.p_Code = fman_firmware;
-    }
-    printk("%s(%d) FMAN version extracted from ls1043_r2.h: (%d.%d.%d) (0x%x) \n",
-		 __FUNCTION__,__LINE__, (fman_firmware[1] & 0xffff0000) >> 16, (fman_firmware[1] & 0x0000ff00) >> 8,
-		fman_firmware[1] & 0x000000ff, fman_firmware[1]);
-#endif //AUTO_FIRMWARE_LOAD
+    /* ASK-edit (ask29): deleted orphan #else/#endif block (was L3447..3456) whose matching #ifdef AUTO_FIRMWARE_LOAD opener was removed upstream; the deleted block referenced a removed-from-tree fman_firmware[] global from ls1043_r2.h. The dynamic firmware path above (XX_Malloc + memcpy from p_FmParam->firmware.p_Code) is the only valid path on lf-6.6.y. */
     printk("***************************************************************\n");
     printk("%s(%d) FMan-Controller code (ver %d.%d.%d) (0x%x)\n", __FUNCTION__,__LINE__,
                ((p_Fm->firmware.p_Code)[1] & 0xffff0000) >> 16 ,

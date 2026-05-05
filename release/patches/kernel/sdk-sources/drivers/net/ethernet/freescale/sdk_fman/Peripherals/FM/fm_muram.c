@@ -44,6 +44,20 @@
 #include "fm_muram_ext.h"
 #include "fm_common.h"
 
+/* ASK-edit (ask29): lf-6.6.y SDK fm_muram.c uses kzalloc() (needs <linux/slab.h>),
+ * references three undeclared symbols (FmMurambaseAddr, FmMuramsize,
+ * DBG_UCODE_RESVD_MURAM_SIZE), and EXPORT_SYMBOL's FmMurambaseAddr at file end.
+ * Provide the missing include, the global definitions, and the debug constant.
+ * FmMurambaseAddr is declared `extern void *` in fm_ehash.c and fm_cc_dbg.h, so
+ * its definition here must NOT be static. FmMuramsize has no external users.
+ * DBG_UCODE_RESVD_MURAM_SIZE is 0 unless CONFIG_DBG_UCODE_INFRA is set. */
+#include <linux/slab.h>
+void     *FmMurambaseAddr;
+static uint32_t FmMuramsize;
+#ifndef DBG_UCODE_RESVD_MURAM_SIZE
+#define DBG_UCODE_RESVD_MURAM_SIZE  0
+#endif
+
 #define __ERR_MODULE__  MODULE_FM_MURAM
 
 
