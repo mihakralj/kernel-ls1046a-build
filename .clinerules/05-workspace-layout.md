@@ -90,16 +90,25 @@ When you push, follow each repo's own discipline:
 
 `/root/vyos-ls1046a-build/data/ask-kernel.pin` is the contract surface between the two repos. It records the producer tag (`kernel-6.6.137-askN`) the consumer image is built against. When this repo cuts a new `askN` and the consumer needs to consume it, the consumer-side commit bumps `data/ask-kernel.pin` — that is a `vyos-ls1046a-build` commit, not a commit in this repo.
 
-## ASK userspace source — third repo (mihakralj/ask-ls1046a-6.6)
+## ASK OOT module + userspace source — folded in-tree (May 2026)
 
-There is a third repository in the workspace at `/root/ask-ls1046a-6.6` (remote: `github.com/mihakralj/ask-ls1046a-6.6`, branch `main`). It holds the **ASK userspace + OOT kernel modules source** (`cdx`, `fci`, `auto_bridge`, `cmm`, `dpa_app`, `fmlib`, `fmc`, `libcli`) consumed by the consumer at build time. As of tag `ask-userspace-audit-v1` (rebased on top of upstream `8160e05`), the consumer's previous `data/ask-userspace/<module>/patches/` patch stack and the per-patch applier loop in `bin/ci-build-packages.sh` have been **retired** and folded into this repo as direct edits with `audit-bN: <finding>` commit subjects and `/* ASK-edit (audit-bN / FINDING) */` inline markers — analogous to the producer-side ask26+ direct-edit policy here. Rationale: `ask-ls1046a-6.6` is a one-shot port of a frozen NXP source, so a parallel patch stack adds the malformed-hunk failure mode (cf. ask13→ask14 silent truncation) for zero rebase safety.
+The previously-separate `mihakralj/ask-ls1046a-6.6` repo (a frozen one-shot port of the NXP `ask-6.6-port` userspace + OOT module sources) was **archived** and its contents redistributed into the two surviving repos:
 
-Cross-repo routing for **userspace-source** changes (Chain 2 audit findings, dead-vendor-source defects, or feature work in `cdx/fci/auto_bridge/cmm/dpa_app`):
+| Source under `ask-ls1046a-6.6@97d950e` | Destination repo | Path |
+|---|---|---|
+| `cdx/`, `fci/`, `auto_bridge/` | this repo (producer) | `release/oot-modules/{cdx,fci,auto_bridge}/` |
+| `iptables-extensions/` | this repo (producer) | `release/oot-modules/iptables-extensions/` |
+| `patches/ppp/`, `patches/rp-pppoe/` | this repo (producer) | `release/userspace-patches/{ppp,rp-pppoe}/` |
+| `cmm/`, `dpa_app/`, `fmlib/`, `fmc/`, `libcli/` | consumer (`vyos-ls1046a-build`) | `ASK/` |
 
-- The change goes in `/root/ask-ls1046a-6.6` as a commit with `audit-bN:` or `feat:`/`fix:` prefix.
-- The consumer (`/root/vyos-ls1046a-build`) bumps its build pin (currently implicit via the gitignored sibling checkout — there is no equivalent of `data/ask-kernel.pin` for the userspace tree yet; the consumer CI clones HEAD or the configured ref).
-- This producer repo (`lts_6.6_ls1046a`) is **not involved** unless the change requires a kernel ABI/UAPI delta (in which case the kernel-side delta lands here as an `ask/` or `fixes/` patch and a new `kernel-6.6.137-askN` tag, AND the userspace caller is updated in `ask-ls1046a-6.6`).
-- **Forbidden:** re-introducing a `data/ask-userspace/<module>/patches/` directory in the consumer or a comparable userspace-patch stack in this repo. Audits land as direct edits with ASK-edit markers, period.
+Rationale: the upstream was a dead branch (NXP confirmed no further updates), and a separate read-only repo added a clone step and a malformed-hunk failure surface (cf. ask13→ask14 silent truncation) without buying any rebase safety. Direct-edit policy applies on both sides — producer side under marker discipline (`/* ASK-edit (askNN): rationale */`, see `20-sdk-driver-rules.md`), consumer side under its `AGENTS.md`.
+
+Cross-repo routing for **OOT-module / userspace-source** changes:
+
+- OOT kernel modules (`cdx`, `fci`, `auto_bridge`) and iptables-extensions: edit `release/oot-modules/<dir>/` in this repo. Build pipeline picks them up via `scripts/build-ask-modules.sh` and `scripts/build-ask-iptables.sh`. Cut a new `kernel-6.6.137-askN` tag if the change is consumer-visible (i.e. modifies a shipped `.deb`).
+- ppp / rp-pppoe userspace patches: edit `release/userspace-patches/<pkg>/`. Build picks them up via `scripts/build-ask-ppp.sh`.
+- cmm / dpa_app / fmlib / fmc / libcli userspace: edit in `vyos-ls1046a-build/ASK/<dir>/` per consumer rules. **Not** a producer change.
+- **Forbidden:** re-introducing any `patches/<pkg>/patches/` quilt-style stack on top of these in-tree sources. Audits and fixes land as direct edits with marker comments.
 
 ## Forbidden cross-repo anti-patterns
 
@@ -108,4 +117,5 @@ Cross-repo routing for **userspace-source** changes (Chain 2 audit findings, dea
 3. Mirroring or copy-pasting the consumer's `AGENTS.md` into this repo's `AGENTS.md` — they have intentionally different scopes.
 4. Adding a `data/ask-kernel.pin` file to `lts_6.6_ls1046a` (it lives only in the consumer).
 5. Bumping `data/ask-kernel.pin` to a producer tag that has not actually been published as a GitHub Release.
-6. Re-introducing a `data/ask-userspace/<module>/patches/` patch stack in the consumer (or any equivalent userspace-patch directory in this repo or in `ask-ls1046a-6.6`). Userspace audits land as direct edits in `ask-ls1046a-6.6` per the ask-userspace-audit-v1 policy, mirroring producer ask26+.
+6. Re-introducing a parallel quilt-style patch stack on top of `release/oot-modules/` or `release/userspace-patches/` (or the consumer-side `ASK/`). Audits land as direct edits with marker comments per the ask26+ direct-edit policy.
+7. Re-cloning the now-archived `mihakralj/ask-ls1046a-6.6` repo at build time. The producer is fully self-contained; if a build script touches `git clone` against that URL, it is wrong.

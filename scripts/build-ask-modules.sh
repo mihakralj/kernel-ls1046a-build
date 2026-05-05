@@ -6,10 +6,9 @@
 # Prerequisites:
 #   - scripts/build-kernel.sh has already run (so Module.symvers exists under
 #     work/linux-<KVER>/).
-#   - work/upstream.git/ contains the ASK mirror at UPSTREAM_BASELINE — i.e.
-#     scripts/fetch-upstream.sh has run at some point. The source for the
-#     three modules is pulled from there via `git archive`, not a working
-#     clone, so there is no third on-disk copy of the ASK tree.
+#   - release/oot-modules/{cdx,fci,auto_bridge} present in this repo
+#     (in-tree post-redistribution; previously pulled at build time from
+#     in-tree under release/oot-modules/).
 #
 # Pipeline position: after build-kernel, before publish-binaries.
 #
@@ -79,13 +78,14 @@ KVER=$(awk '/^VERSION/{v=$3} /^PATCHLEVEL/{p=$3} /^SUBLEVEL/{s=$3} END{print v".
 KRELEASE="${KVER}-vyos"
 
 # ── Resolve ASK source tree ─────────────────────────────────────────────
-MIRROR="$WORK_DIR/upstream.git"
-[[ -d "$MIRROR" ]] || err "upstream mirror missing; run fetch-upstream.sh first"
-
-ASK_SHA="${UPSTREAM_TARGET:-${UPSTREAM_BASELINE:?}}"
-# Resolve short SHA → full SHA so git archive is deterministic
-ASK_SHA=$(git --git-dir="$MIRROR" rev-parse "$ASK_SHA^{commit}" 2>/dev/null) \
-    || err "cannot resolve ASK commit: ${UPSTREAM_TARGET:-$UPSTREAM_BASELINE}"
+#
+# Post-redistribution (2026-05-05): the cdx / fci / auto_bridge sources
+# live in-tree under release/oot-modules/, imported from the now-archived
+# mihakralj/ask-ls1046a-6.6 @ 97d950e. No upstream fetch is performed;
+# the build copies the three subdirs straight from the producer repo.
+OOT_SRC_DIR="$REPO_ROOT/release/oot-modules"
+[[ -d "$OOT_SRC_DIR/cdx" && -d "$OOT_SRC_DIR/fci" && -d "$OOT_SRC_DIR/auto_bridge" ]] \
+    || err "release/oot-modules/{cdx,fci,auto_bridge} missing — repo corrupt?"
 
 SRC_ROOT="$WORK_DIR/ask-oot/src"
 BUILD_ROOT="$WORK_DIR/ask-oot/build"
@@ -94,7 +94,7 @@ STAGING="$WORK_DIR/ask-oot/staging"
 info "building ASK out-of-tree modules"
 dim "   kernel tree:  $KDIR"
 dim "   kernel rel:   $KRELEASE"
-dim "   ASK commit:   ${ASK_SHA:0:12}"
+dim "   OOT sources:  $OOT_SRC_DIR (in-tree)"
 dim "   platform:     $PLATFORM"
 dim "   compiler:     $(gcc --version 2>/dev/null | head -1)"
 
@@ -139,13 +139,12 @@ if [[ ! -f "$NCSW_MK" ]]; then
     exit 77
 fi
 
-# Extract the three module trees from the bare mirror
-begin_group "extract ASK sources"
+# Copy the three module trees from the in-tree source (post-redistribution)
+begin_group "stage ASK OOT sources"
 for dir in cdx fci auto_bridge; do
-    git --git-dir="$MIRROR" archive "$ASK_SHA" -- "$dir" \
-        | tar -C "$SRC_ROOT" -x
-    [[ -d "$SRC_ROOT/$dir" ]] || err "extraction failed for $dir"
-    ok "extracted $dir ($(find "$SRC_ROOT/$dir" -name '*.c' | wc -l) .c files)"
+    cp -a "$OOT_SRC_DIR/$dir" "$SRC_ROOT/"
+    [[ -d "$SRC_ROOT/$dir" ]] || err "stage failed for $dir"
+    ok "staged $dir ($(find "$SRC_ROOT/$dir" -name '*.c' | wc -l) .c files)"
 done
 end_group
 
@@ -359,7 +358,8 @@ Description: NXP ASK out-of-tree kernel modules (cdx, fci, auto_bridge)
  Without this package installed, the in-tree ASK hook sites remain present
  but dormant: every packet falls through to the Linux slow path.
  .
- Built from mihakralj/ask-ls1046a-6.6 @ ${ASK_SHA:0:12} against linux-$KVER.
+ Built from in-tree release/oot-modules/ (imported from
+ mihakralj/ask-ls1046a-6.6 @ 97d950ed) against linux-$KVER.
 EOF
 
 cat > "$DEBIAN_DIR/postinst" <<EOF

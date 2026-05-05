@@ -12,7 +12,7 @@
 #   patches/rp-pppoe/01-nxp-ask-cmm-relay.patch (307 lines, src/Makefile.in + src/relay.c)
 #
 # Prerequisites:
-#   - work/upstream.git/ exists (scripts/fetch-upstream.sh ran)
+#   - release/userspace-patches/{ppp,rp-pppoe}/ present in this repo
 #   - Host is arm64 with the Debian build toolchain:
 #     dpkg-dev, debhelper, devscripts, quilt, libpcap0.8-dev,
 #     libpam0g-dev, libssl-dev, and deb-src enabled.
@@ -66,13 +66,14 @@ host_arch=$(dpkg --print-architecture)
 [[ "$host_arch" == "$TARGET_ARCH" ]] \
     || err "this script is arm64-native; host=$host_arch, target=$TARGET_ARCH"
 
-# ── Resolve upstream commit ────────────────────────────────────────────
-MIRROR="$WORK_DIR/upstream.git"
-[[ -d "$MIRROR" ]] || err "upstream mirror missing; run fetch-upstream.sh first"
-
-ASK_SHA="${UPSTREAM_TARGET:-${UPSTREAM_BASELINE:?}}"
-ASK_SHA=$(git --git-dir="$MIRROR" rev-parse "$ASK_SHA^{commit}" 2>/dev/null) \
-    || err "cannot resolve ASK commit: ${UPSTREAM_TARGET:-$UPSTREAM_BASELINE}"
+# ── Resolve in-tree userspace patches ─────────────────────────────────
+#
+# Post-redistribution (2026-05-05): the ppp / rp-pppoe quilt-style
+# patches live in-tree under release/userspace-patches/, imported from
+# the now-archived mihakralj/ask-ls1046a-6.6 @ 97d950e.
+USP_PATCH_ROOT="$REPO_ROOT/release/userspace-patches"
+[[ -d "$USP_PATCH_ROOT/ppp" && -d "$USP_PATCH_ROOT/rp-pppoe" ]] \
+    || err "release/userspace-patches/{ppp,rp-pppoe} missing — repo corrupt?"
 
 # ── Shared workspace ───────────────────────────────────────────────────
 WS="$WORK_DIR/ask-ppp"
@@ -84,7 +85,7 @@ export DEBEMAIL="${DEBEMAIL:-ci@localhost}"
 export DEBFULLNAME="${DEBFULLNAME:-ASK LTS 6.6 Autobuilder}"
 
 info "building patched ppp + rp-pppoe (Debian source rebuilds)"
-dim "   patch commit:   ${ASK_SHA:0:12}"
+dim "   patch source:   $USP_PATCH_ROOT (in-tree)"
 dim "   target arch:    $TARGET_ARCH"
 dim "   compiler:       $(gcc --version 2>/dev/null | head -1)"
 dim "   revision tag:   $REVISION_SUFFIX"
@@ -111,14 +112,19 @@ build_one() {
 
     begin_group "build $src_pkg (+ASK patch)"
 
-    # 1. Extract the patch
-    if ! git --git-dir="$MIRROR" show "$ASK_SHA:$patch_subpath" > "$patch_file" 2>/dev/null; then
-        warn "  cannot extract $patch_subpath at $ASK_SHA"
-        FAIL_SUMMARY+=("$src_pkg: patch extraction failed")
+    # 1. Resolve in-tree patch (the patch_subpath strings still use the
+    #    historical "patches/<pkg>/<file>" layout from the source repo,
+    #    which we map onto release/userspace-patches/<pkg>/<file>).
+    local rel="${patch_subpath#patches/}"
+    local src_patch="$REPO_ROOT/release/userspace-patches/$rel"
+    if [[ ! -f "$src_patch" ]]; then
+        warn "  in-tree patch missing: $src_patch"
+        FAIL_SUMMARY+=("$src_pkg: patch missing in release/userspace-patches/")
         end_group
         return 1
     fi
-    ok "  extracted patch ($(wc -l < "$patch_file") lines)"
+    cp "$src_patch" "$patch_file"
+    ok "  staged patch ($(wc -l < "$patch_file") lines)"
 
     # 2. Fetch Debian source
     info "  apt-get source $src_pkg"
@@ -199,12 +205,12 @@ build_one() {
         cd "$src_dir"
         if command -v dch >/dev/null 2>&1; then
             dch --distribution "$DIST" --newversion "$new_ver" \
-                "Apply NXP ASK patch from ${ASK_SHA:0:12} ($(basename "$patch_subpath"))."
+                "Apply NXP ASK patch ($(basename "$patch_subpath"))."
         else
             {
                 printf '%s (%s) %s; urgency=medium\n\n' "$src_pkg" "$new_ver" "$DIST"
-                printf '  * Apply NXP ASK patch from %s (%s).\n\n' \
-                    "${ASK_SHA:0:12}" "$(basename "$patch_subpath")"
+                printf '  * Apply NXP ASK patch (%s).\n\n' \
+                    "$(basename "$patch_subpath")"
                 printf ' -- %s <%s>  %s\n\n' \
                     "$DEBFULLNAME" "$DEBEMAIL" "$(date -R)"
                 cat debian/changelog
@@ -307,7 +313,7 @@ done
 # ── Summary ─────────────────────────────────────────────────────────────
 echo
 info "── ask-ppp build summary ──"
-printf '   patch commit:   %s\n' "${ASK_SHA:0:12}"
+printf '   patch source:   %s\n' "$USP_PATCH_ROOT"
 printf '   target arch:    %s\n' "$TARGET_ARCH"
 if (( ${#BUILT_SUMMARY[@]} )); then
     printf '   built:\n'

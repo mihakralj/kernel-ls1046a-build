@@ -20,9 +20,9 @@
 #   include/linux/netfilter/xt_qosconnmark.h xt_QOSCONNMARK.h
 #
 # Prerequisites:
-#   - work/upstream.git/ contains the ASK mirror (with iptables-extensions/
-#     populated at UPSTREAM_BASELINE/UPSTREAM_TARGET).
-#     scripts/fetch-upstream.sh must have run.
+#   - release/oot-modules/iptables-extensions/ present in this repo
+#     (in-tree post-redistribution; previously pulled at build time from
+#     in-tree under release/oot-modules/iptables-extensions/).
 #   - Host is arm64 with the Debian build toolchain:
 #       build-essential dpkg-dev debhelper devscripts dh-autoreconf quilt
 #       libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev
@@ -91,25 +91,27 @@ host_arch=$(dpkg --print-architecture)
 [[ "$host_arch" == "$TARGET_ARCH" ]] \
     || err "this script is arm64-native; host=$host_arch, target=$TARGET_ARCH"
 
-# ── Resolve upstream commit ────────────────────────────────────────────
-MIRROR="$WORK_DIR/upstream.git"
-[[ -d "$MIRROR" ]] || err "upstream mirror missing; run fetch-upstream.sh first"
+# ── Resolve in-tree iptables-extensions source ────────────────────────
+#
+# Post-redistribution (2026-05-05): the iptables-extensions/ tree lives
+# in-tree under release/oot-modules/iptables-extensions/, imported from
+# the now-archived mihakralj/ask-ls1046a-6.6 @ 97d950e.
+EXT_SRC="$REPO_ROOT/release/oot-modules/iptables-extensions"
+[[ -d "$EXT_SRC" ]] \
+    || err "release/oot-modules/iptables-extensions missing — repo corrupt?"
 
-ASK_SHA="${UPSTREAM_TARGET:-${UPSTREAM_BASELINE:?}}"
-ASK_SHA=$(git --git-dir="$MIRROR" rev-parse "$ASK_SHA^{commit}" 2>/dev/null) \
-    || err "cannot resolve ASK commit: ${UPSTREAM_TARGET:-$UPSTREAM_BASELINE}"
-
-# Verify the upstream mirror has every file we need before doing any work.
 missing=()
 for entry in "${ASK_FILES[@]}"; do
+    # The ASK_FILES array still uses "iptables-extensions/<path>" prefixes
+    # for src; strip that prefix and look up under $EXT_SRC.
     src="${entry%%:*}"
-    git --git-dir="$MIRROR" cat-file -e "$ASK_SHA:$src" 2>/dev/null \
-        || missing+=("$src")
+    rel="${src#iptables-extensions/}"
+    [[ -f "$EXT_SRC/$rel" ]] || missing+=("$src")
 done
 if (( ${#missing[@]} )); then
-    warn "missing in upstream mirror at $ASK_SHA:"
+    warn "missing under $EXT_SRC:"
     for m in "${missing[@]}"; do warn "    $m"; done
-    err "cannot synthesize ASK iptables overlay; check upstream commit"
+    err "cannot synthesize ASK iptables overlay; in-tree source incomplete"
 fi
 
 # ── Workspace ──────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ mkdir -p "$SRC_ROOT" "$OUT_DIR"
 
 info "building patched iptables (Debian source rebuild)"
 dim "   source pkg:     $SRC_PKG"
-dim "   patch commit:   ${ASK_SHA:0:12}"
+dim "   ext sources:    $EXT_SRC (in-tree)"
 dim "   target arch:    $TARGET_ARCH"
 dim "   compiler:       $(gcc --version 2>/dev/null | head -1)"
 dim "   revision tag:   $REVISION_SUFFIX"
@@ -160,8 +162,9 @@ mkdir -p "$overlay_root"
 for entry in "${ASK_FILES[@]}"; do
     src="${entry%%:*}"
     dst="${entry#*:}"
+    rel="${src#iptables-extensions/}"
     mkdir -p "$overlay_root/$(dirname "$dst")"
-    git --git-dir="$MIRROR" show "$ASK_SHA:$src" > "$overlay_root/$dst"
+    cp "$EXT_SRC/$rel" "$overlay_root/$dst"
 done
 ok "staged $(( ${#ASK_FILES[@]} )) files under $overlay_root"
 
@@ -188,12 +191,10 @@ PATCH_FILE="$WS/0999-ask-qosmark-extensions.patch"
 {
     printf 'Description: Add NXP ASK QOSMARK/QOSCONNMARK xtables extensions\n'
     printf ' Copies four new libxt_*.c extension sources and their UAPI\n'
-    printf ' headers from the NXP ASK upstream tree (commit %s).\n' \
-        "${ASK_SHA:0:12}"
+    printf ' headers from the in-tree release/oot-modules/iptables-extensions/.\n'
     printf ' These compile into libxt_{qos,QOS}{mark,connmark}.so xtables\n'
     printf ' plugins shipped inside the iptables binary package.\n'
-    printf 'Origin: upstream, https://github.com/mihakralj/ask-ls1046a-6.6 @ %s\n' \
-        "${ASK_SHA:0:12}"
+    printf 'Origin: imported from mihakralj/ask-ls1046a-6.6 @ 97d950ed\n'
     printf 'Forwarded: not-needed\n'
     printf 'Last-Update: %s\n\n' "$(date +%F)"
     for entry in "${ASK_FILES[@]}"; do
@@ -232,12 +233,11 @@ NEW_VER="${UPSTREAM_VER}${REVISION_SUFFIX}"
     cd "$SRC_DIR"
     if command -v dch >/dev/null 2>&1; then
         dch --distribution "$DIST" --newversion "$NEW_VER" \
-            "Apply NXP ASK QOSMARK/QOSCONNMARK extensions from ${ASK_SHA:0:12}."
+            "Apply NXP ASK QOSMARK/QOSCONNMARK extensions (in-tree)."
     else
         {
             printf '%s (%s) %s; urgency=medium\n\n' "$SRC_PKG" "$NEW_VER" "$DIST"
-            printf '  * Apply NXP ASK QOSMARK/QOSCONNMARK extensions from %s.\n\n' \
-                "${ASK_SHA:0:12}"
+            printf '  * Apply NXP ASK QOSMARK/QOSCONNMARK extensions (in-tree).\n\n'
             printf ' -- %s <%s>  %s\n\n' \
                 "$DEBFULLNAME" "$DEBEMAIL" "$(date -R)"
             cat debian/changelog
@@ -308,7 +308,7 @@ echo
 info "── ask-iptables build summary ──"
 printf '   source:         %s %s\n'    "$SRC_PKG" "$UPSTREAM_VER"
 printf '   new version:    %s\n'       "$NEW_VER"
-printf '   patch commit:   %s\n'       "${ASK_SHA:0:12}"
+printf '   ext sources:    %s\n'       "$EXT_SRC"
 printf '   target arch:    %s\n'       "$TARGET_ARCH"
 printf '   ASK files:      %d copied\n' "${#ASK_FILES[@]}"
 printf '   produced:\n'

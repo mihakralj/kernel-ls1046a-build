@@ -23,15 +23,11 @@
 #      (falls back to `make defconfig` + `cat ask.config` if vyos-base/ is absent)
 #   4. Running `make ARCH=arm64 olddefconfig` to resolve new symbols
 #
-# Source of truth for artefacts (same priority order as patch-health.sh):
-#   1. work/derived/    (freshest)
-#   2. release/         (committed last-known-good)
-#   3. work/reference/  (raw upstream reference)
+# Source of truth: release/ (committed in this repo).
 #
 # Usage:
-#   ./scripts/apply-to-tree.sh                      # auto-pick source + kernel
+#   ./scripts/apply-to-tree.sh                      # auto-fetch kernel + apply
 #   ./scripts/apply-to-tree.sh 6.6.123              # fetch/pin kernel first
-#   ./scripts/apply-to-tree.sh --source release     # force committed tree
 #   ./scripts/apply-to-tree.sh --kdir /path/to/src  # apply to an external tree
 #   ./scripts/apply-to-tree.sh --defconfig foo      # seed config (default: defconfig)
 #
@@ -44,17 +40,16 @@ source "$(dirname "$0")/common.sh"
 
 need git find cp make jq
 
-SOURCE=""
 VERSION_ARG=""
 KDIR_ARG=""
 DEFCONFIG="${KERNEL_DEFCONFIG:-defconfig}"
 
 while (( $# )); do
     case "$1" in
-        --source)    SOURCE="${2:?--source needs arg}"; shift 2 ;;
+        --source)    shift 2 ;;  # accepted-and-ignored for back-compat
         --kdir)      KDIR_ARG="${2:?--kdir needs arg}";  shift 2 ;;
         --defconfig) DEFCONFIG="${2:?--defconfig needs arg}"; shift 2 ;;
-        -h|--help)   sed -n '1,30p' "$0"; exit 0 ;;
+        -h|--help)   sed -n '1,28p' "$0"; exit 0 ;;
         *)           VERSION_ARG="$1"; shift ;;
     esac
 done
@@ -73,33 +68,10 @@ else
     [[ -d "$KDIR" ]] || err "kernel source missing: $KDIR"
 fi
 
-# ── Resolve artefact source ─────────────────────────────────────────────
-if [[ -z "$SOURCE" ]]; then
-    if   [[ -d "$WORK_DIR/derived/patches/ask"  ]]; then SOURCE="derived"
-    elif [[ -d "$REPO_ROOT/release/patches/ask" ]]; then SOURCE="release"
-    else                                                  SOURCE="reference"
-    fi
-fi
-
-case "$SOURCE" in
-    derived)
-        PATCH_ROOT="$WORK_DIR/derived/patches"
-        CFG_FRAG="$WORK_DIR/derived/ask.config"
-        TAG="derived"
-        ;;
-    release)
-        PATCH_ROOT="$REPO_ROOT/release/patches"
-        CFG_FRAG="$REPO_ROOT/release/ask.config"
-        TAG="release"
-        ;;
-    reference)
-        [[ -d "$WORK_DIR/reference" ]] || "$SCRIPTS_DIR/fetch-reference.sh"
-        PATCH_ROOT="$WORK_DIR/reference/patches"
-        CFG_FRAG="$WORK_DIR/reference/config/ask.config"
-        TAG="reference"
-        ;;
-    *) err "unknown --source '$SOURCE' (use: derived | release | reference)" ;;
-esac
+# ── Resolve artefact source (release/ is the only source of truth) ──────
+SOURCE="release"
+PATCH_ROOT="$REPO_ROOT/release/patches"
+CFG_FRAG="$REPO_ROOT/release/ask.config"
 
 [[ -d "$PATCH_ROOT" ]]           || err "patch dir missing: $PATCH_ROOT"
 [[ -f "$CFG_FRAG" ]]             || err "config fragment missing: $CFG_FRAG"
@@ -121,7 +93,7 @@ mapfile -t PATCH_FILES < <(
 
 info "applying ASK artefacts to kernel tree"
 dim  "   kernel:  linux-$KVER ($KDIR)"
-dim  "   source:  $SOURCE ($PATCH_ROOT)"
+dim  "   source:  release/ ($PATCH_ROOT)"
 
 # ── Idempotence guard ───────────────────────────────────────────────────
 # Record a marker so we don't re-apply onto an already-ASK tree (the hooks
@@ -230,8 +202,8 @@ info "step 4/4: resolving config (make ARCH=arm64 olddefconfig)"
     echo "source=$SOURCE"
     echo "kernel=$KVER"
     echo "applied_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    if [[ "$SOURCE" == "release" && -f "$REPO_ROOT/release/manifest.json" ]]; then
-        echo "reference_sha=$(jq -r '.reference_sha // ""' "$REPO_ROOT/release/manifest.json")"
+    if [[ -f "$REPO_ROOT/release/manifest.json" ]]; then
+        echo "ask_iteration=$(jq -r '.ask_iteration // ""' "$REPO_ROOT/release/manifest.json")"
     fi
 } > "$MARKER"
 

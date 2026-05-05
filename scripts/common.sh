@@ -74,7 +74,7 @@ need() {
 
 # ── Shared classification: ASK upstream path → tier ────────────────────
 # Single source of truth for "what counts as a kernel patch (T2)" so that
-# sync-upstream.sh and any future consumer agree.
+# any future consumer needs.
 #
 #   T1  direct-apply  — userspace / OOT modules / lib patches
 #   T2  port required — touches patches/kernel/* (needs re-derivation onto 6.6)

@@ -2,17 +2,11 @@
 # patch-health.sh — dry-run probe: do the CURRENT ASK kernel patches apply to
 # the target linux-6.6.y source tree, without modifying it?
 #
-# Source of truth for patches (in priority order):
-#   1. work/derived/patches/kernel/   (output of derive-patches.sh, freshest)
-#   2. release/patches/kernel/        (committed last-known-good)
-#   3. work/reference/patches/kernel/ (raw upstream reference, fallback)
+# Source of truth: release/ (committed in this repo).
 #
 # Usage:
 #   ./scripts/patch-health.sh                   # uses work/.kernel-version
 #   ./scripts/patch-health.sh 6.6.123           # fetch then probe
-#   ./scripts/patch-health.sh --source derived  # force fresh derivation output
-#   ./scripts/patch-health.sh --source release  # force committed release/
-#   ./scripts/patch-health.sh --source reference# force raw reference repo
 #
 # Exit codes:
 #   0  all patches apply cleanly
@@ -23,12 +17,11 @@ source "$(dirname "$0")/common.sh"
 
 need git find jq
 
-SOURCE=""
 VERSION_ARG=""
 while (( $# )); do
     case "$1" in
-        --source) SOURCE="${2:?--source needs arg}"; shift 2 ;;
-        -h|--help) sed -n '1,25p' "$0"; exit 0 ;;
+        --source) shift 2 ;;  # accepted-and-ignored for back-compat
+        -h|--help) sed -n '1,18p' "$0"; exit 0 ;;
         *) VERSION_ARG="$1"; shift ;;
     esac
 done
@@ -41,42 +34,17 @@ KVER=$(cat "$WORK_DIR/.kernel-version")
 KDIR="$WORK_DIR/linux-$KVER"
 [[ -d "$KDIR" ]] || err "kernel source missing: $KDIR"
 
-# ── Resolve patch source ────────────────────────────────────────────────
-# Auto-pick priority:  work/derived/  →  release/  →  work/reference/
-if [[ -z "$SOURCE" ]]; then
-    if   [[ -d "$WORK_DIR/derived/patches/ask" ]]; then SOURCE="derived"
-    elif [[ -d "$REPO_ROOT/release/patches/ask" ]]; then SOURCE="release"
-    else                                                 SOURCE="reference"
-    fi
+# ── Resolve patch source (release/ is the only source of truth) ─────────
+SOURCE="release"
+[[ -d "$REPO_ROOT/release/patches" ]] \
+    || err "release/patches/ not found in repo"
+PATCH_ROOT="$REPO_ROOT/release/patches"
+SDK_DIR="$PATCH_ROOT/kernel/sdk-sources"
+ASK_ITER=""
+if [[ -f "$REPO_ROOT/release/manifest.json" ]]; then
+    ASK_ITER=$(jq -r '.ask_iteration // ""' "$REPO_ROOT/release/manifest.json" 2>/dev/null)
 fi
-
-case "$SOURCE" in
-    derived)
-        [[ -d "$WORK_DIR/derived/patches" ]] \
-            || err "work/derived/ not found — run ./scripts/derive-patches.sh first"
-        PATCH_ROOT="$WORK_DIR/derived/patches"
-        SDK_DIR="$PATCH_ROOT/kernel/sdk-sources"
-        TAG="derived (work/derived)"
-        ;;
-    release)
-        [[ -d "$REPO_ROOT/release/patches" ]] \
-            || err "release/ not found — run ./scripts/publish-release.sh first"
-        PATCH_ROOT="$REPO_ROOT/release/patches"
-        SDK_DIR="$PATCH_ROOT/kernel/sdk-sources"
-        RELEASE_SHA=""
-        if [[ -f "$REPO_ROOT/release/manifest.json" ]]; then
-            RELEASE_SHA=$(jq -r '.reference_sha // ""' "$REPO_ROOT/release/manifest.json" 2>/dev/null)
-        fi
-        TAG="release${RELEASE_SHA:+ @ ${RELEASE_SHA:0:12}}"
-        ;;
-    reference)
-        [[ -d "$WORK_DIR/reference" ]] || "$SCRIPTS_DIR/fetch-reference.sh"
-        PATCH_ROOT="$WORK_DIR/reference/patches"
-        SDK_DIR="$PATCH_ROOT/kernel/sdk-sources"
-        TAG="reference @ $(cat "$WORK_DIR/.reference-sha" 2>/dev/null | cut -c1-12)"
-        ;;
-    *) err "unknown --source '$SOURCE' (use: derived | release | reference)" ;;
-esac
+TAG="release${ASK_ITER:+ @ $ASK_ITER}"
 
 # ── Discover patch files: vyos/ → ask/ → fixes/ ─────────────────────────
 # Patches live under three subdirs that mirror ASK-mono organisation:

@@ -112,39 +112,13 @@ done
 shopt -u nullglob
 
 # ── Enrich manifest with release-time provenance ────────────────────────
-# Start from the derive-patches manifest, drop host-specific path, then add:
-#   - kernel_version           (explicit field)
-#   - upstream_{target,baseline}_{committer_date,author_date,subject}
-#   - reference_{committer_date,author_date,subject}
+# Start from release/manifest.json, drop host-specific path, then add:
 #   - published_at             (release timestamp)
 #   - debian_sources[]         ({package, version, architecture, filename, sha256})
-#
-# All lookups are best-effort: if a git dir or field is missing we emit null
-# rather than failing the release.
 
-_git_show() {
-    # $1 = gitdir, $2 = sha, $3 = format (e.g. %cI, %aI, %s)
-    local gd="$1" sha="$2" fmt="$3"
-    [[ -d "$gd" && -n "$sha" && "$sha" != "unknown" ]] || { echo ""; return; }
-    git --git-dir="$gd" show -s --format="$fmt" "$sha" 2>/dev/null || echo ""
-}
-
-REF_SHA=$(jq -r '.reference_sha // "unknown"'      "$MANIFEST")
-UP_TARGET=$(jq -r '.upstream_target // "unknown"'  "$MANIFEST")
-UP_BASE=$(jq -r  '.upstream_baseline // "unknown"' "$MANIFEST")
-SDK_COUNT=$(jq -r '.sdk_source_count // 0'         "$MANIFEST")
-
-UP_GITDIR="$WORK_DIR/upstream.git"
-REF_GITDIR="$WORK_DIR/reference/.git"
-
-UP_TARGET_CDATE=$(_git_show "$UP_GITDIR" "$UP_TARGET" %cI)
-UP_TARGET_ADATE=$(_git_show "$UP_GITDIR" "$UP_TARGET" %aI)
-UP_TARGET_SUBJ=$( _git_show "$UP_GITDIR" "$UP_TARGET" %s)
-UP_BASE_CDATE=$(  _git_show "$UP_GITDIR" "$UP_BASE"   %cI)
-UP_BASE_SUBJ=$(   _git_show "$UP_GITDIR" "$UP_BASE"   %s)
-REF_CDATE=$(      _git_show "$REF_GITDIR" "$REF_SHA"  %cI)
-REF_ADATE=$(      _git_show "$REF_GITDIR" "$REF_SHA"  %aI)
-REF_SUBJ=$(       _git_show "$REF_GITDIR" "$REF_SHA"  %s)
+SDK_COUNT=$(jq -r '.sdk_source_count // 0'      "$MANIFEST")
+ASK_ITER=$(jq -r '.ask_iteration   // "unknown"' "$MANIFEST")
+OOT_SHA=$(jq -r '.oot_modules_origin.sha // "unknown"' "$MANIFEST")
 
 PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -167,34 +141,15 @@ if command -v dpkg-deb >/dev/null 2>&1; then
     )"
 fi
 
-# Attach enriched manifest.json — drop work-host-specific field, then augment
+# Attach enriched manifest.json — augment with publish-time fields
 jq --arg kver        "$KVER" \
    --arg pub_at      "$PUBLISHED_AT" \
-   --arg up_t_cdate  "$UP_TARGET_CDATE" \
-   --arg up_t_adate  "$UP_TARGET_ADATE" \
-   --arg up_t_subj   "$UP_TARGET_SUBJ" \
-   --arg up_b_cdate  "$UP_BASE_CDATE" \
-   --arg up_b_subj   "$UP_BASE_SUBJ" \
-   --arg ref_cdate   "$REF_CDATE" \
-   --arg ref_adate   "$REF_ADATE" \
-   --arg ref_subj    "$REF_SUBJ" \
    --argjson debs    "$DEB_SOURCES_JSON" \
-   '
-    del(.output_dir) +
-    {
-        kernel_version:                $kver,
-        published_at:                  $pub_at,
-        upstream_target_committer_date: ($up_t_cdate | select(. != "") // null),
-        upstream_target_author_date:    ($up_t_adate | select(. != "") // null),
-        upstream_target_subject:        ($up_t_subj  | select(. != "") // null),
-        upstream_baseline_committer_date:($up_b_cdate| select(. != "") // null),
-        upstream_baseline_subject:      ($up_b_subj  | select(. != "") // null),
-        reference_committer_date:       ($ref_cdate  | select(. != "") // null),
-        reference_author_date:          ($ref_adate  | select(. != "") // null),
-        reference_subject:              ($ref_subj   | select(. != "") // null),
-        debian_sources:                 $debs
-    }
-   ' "$MANIFEST" > "$STAGE/manifest.json"
+   '. + {
+        kernel_version: $kver,
+        published_at:   $pub_at,
+        debian_sources: $debs
+    }' "$MANIFEST" > "$STAGE/manifest.json"
 
 # Generate SHA256SUMS across all assets (except itself)
 ( cd "$STAGE" && sha256sum -- * > SHA256SUMS ) || err "sha256sum generation failed"
@@ -211,21 +166,10 @@ NOTES="$STAGE/.release-notes.md"
     echo "| Field | Value |"
     echo "|---|---|"
     echo "| Kernel version      | \`$KVER\` |"
+    echo "| ASK iteration       | \`$ASK_ITER\` |"
     echo "| Published (UTC)     | \`$PUBLISHED_AT\` |"
     echo "| SDK source files    | $SDK_COUNT |"
-    echo
-    echo "### Upstream repositories"
-    echo
-    echo "| Repo | SHA | Committed | Subject |"
-    echo "|---|---|---|---|"
-    printf '| reference (\`ask-ls1046a-6.6\`) | `%s` | %s | %s |\n' \
-        "${REF_SHA:0:12}" "${REF_CDATE:-n/a}" "${REF_SUBJ:-n/a}"
-    printf '| upstream target (\`ASK\` mt-6.12.y) | `%s` | %s | %s |\n' \
-        "${UP_TARGET:0:12}" "${UP_TARGET_CDATE:-n/a}" "${UP_TARGET_SUBJ:-n/a}"
-    if [[ -n "$UP_BASE" && "$UP_BASE" != "unknown" && "$UP_BASE" != "$UP_TARGET" ]]; then
-        printf '| upstream baseline | `%s` | %s | %s |\n' \
-            "${UP_BASE:0:12}" "${UP_BASE_CDATE:-n/a}" "${UP_BASE_SUBJ:-n/a}"
-    fi
+    echo "| OOT modules origin  | \`${OOT_SHA:0:12}\` (mihakralj/ask-ls1046a-6.6, archived) |"
     echo
     # Debian userspace sources (non-kernel .debs), if any
     DEB_ROWS=$(jq -r '.[] | "| `\(.package)` | `\(.version)` | `\(.architecture)` |"' <<< "$DEB_SOURCES_JSON")
@@ -265,7 +209,7 @@ NOTES="$STAGE/.release-notes.md"
 info "GitHub Release plan"
 dim  "   repo:         $REPO_SLUG"
 dim  "   tag:          $TAG"
-dim  "   title:        ASK kernel $KVER (reference ${REF_SHA:0:12})"
+dim  "   title:        ASK kernel $KVER ($ASK_ITER)"
 dim  "   draft:        $( ((DRAFT)) && echo yes || echo no )"
 dim  "   assets:"
 ( cd "$STAGE" && find . -maxdepth 1 -type f ! -name '.release-notes.md' -printf '                 %f\n' | sort )
@@ -286,7 +230,7 @@ fi
 
 # ── Create the release ──────────────────────────────────────────────────
 args=( -R "$REPO_SLUG" "$TAG"
-       --title "ASK kernel $KVER (reference ${REF_SHA:0:12})"
+       --title "ASK kernel $KVER ($ASK_ITER)"
        --notes-file "$NOTES" )
 (( DRAFT )) && args+=( --draft )
 
