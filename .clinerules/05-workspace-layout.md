@@ -90,6 +90,17 @@ When you push, follow each repo's own discipline:
 
 `/root/vyos-ls1046a-build/data/ask-kernel.pin` is the contract surface between the two repos. It records the producer tag (`kernel-6.6.137-askN`) the consumer image is built against. When this repo cuts a new `askN` and the consumer needs to consume it, the consumer-side commit bumps `data/ask-kernel.pin` — that is a `vyos-ls1046a-build` commit, not a commit in this repo.
 
+## ASK userspace source — third repo (mihakralj/ask-ls1046a-6.6)
+
+There is a third repository in the workspace at `/root/ask-ls1046a-6.6` (remote: `github.com/mihakralj/ask-ls1046a-6.6`, branch `main`). It holds the **ASK userspace + OOT kernel modules source** (`cdx`, `fci`, `auto_bridge`, `cmm`, `dpa_app`, `fmlib`, `fmc`, `libcli`) consumed by the consumer at build time. As of tag `ask-userspace-audit-v1` (rebased on top of upstream `8160e05`), the consumer's previous `data/ask-userspace/<module>/patches/` patch stack and the per-patch applier loop in `bin/ci-build-packages.sh` have been **retired** and folded into this repo as direct edits with `audit-bN: <finding>` commit subjects and `/* ASK-edit (audit-bN / FINDING) */` inline markers — analogous to the producer-side ask26+ direct-edit policy here. Rationale: `ask-ls1046a-6.6` is a one-shot port of a frozen NXP source, so a parallel patch stack adds the malformed-hunk failure mode (cf. ask13→ask14 silent truncation) for zero rebase safety.
+
+Cross-repo routing for **userspace-source** changes (Chain 2 audit findings, dead-vendor-source defects, or feature work in `cdx/fci/auto_bridge/cmm/dpa_app`):
+
+- The change goes in `/root/ask-ls1046a-6.6` as a commit with `audit-bN:` or `feat:`/`fix:` prefix.
+- The consumer (`/root/vyos-ls1046a-build`) bumps its build pin (currently implicit via the gitignored sibling checkout — there is no equivalent of `data/ask-kernel.pin` for the userspace tree yet; the consumer CI clones HEAD or the configured ref).
+- This producer repo (`lts_6.6_ls1046a`) is **not involved** unless the change requires a kernel ABI/UAPI delta (in which case the kernel-side delta lands here as an `ask/` or `fixes/` patch and a new `kernel-6.6.137-askN` tag, AND the userspace caller is updated in `ask-ls1046a-6.6`).
+- **Forbidden:** re-introducing a `data/ask-userspace/<module>/patches/` directory in the consumer or a comparable userspace-patch stack in this repo. Audits land as direct edits with ASK-edit markers, period.
+
 ## Forbidden cross-repo anti-patterns
 
 1. Mixing producer and consumer file changes in a single commit.
@@ -97,3 +108,4 @@ When you push, follow each repo's own discipline:
 3. Mirroring or copy-pasting the consumer's `AGENTS.md` into this repo's `AGENTS.md` — they have intentionally different scopes.
 4. Adding a `data/ask-kernel.pin` file to `lts_6.6_ls1046a` (it lives only in the consumer).
 5. Bumping `data/ask-kernel.pin` to a producer tag that has not actually been published as a GitHub Release.
+6. Re-introducing a `data/ask-userspace/<module>/patches/` patch stack in the consumer (or any equivalent userspace-patch directory in this repo or in `ask-ls1046a-6.6`). Userspace audits land as direct edits in `ask-ls1046a-6.6` per the ask-userspace-audit-v1 policy, mirroring producer ask26+.
