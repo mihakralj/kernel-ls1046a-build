@@ -4,9 +4,9 @@
 
 ASK ([Application Solutions Kit](https://github.com/we-are-mono/ASK)) is NXP/Mono's fast-path networking stack: SDK FMan/DPAA/QBMan drivers, netfilter offload hooks, IPsec crypto-engine plumbing, conntrack/QoS extensions. It targets whichever kernel Mono is building against — currently **6.12**. VyOS 1.5/1.6 (and everything else that pins a 6.6 LTS kernel) is five years behind that.
 
-This repo is the bridge: a hand-curated, bucketed patch set that ports ASK forward to **kernel.org 6.6.137 LTS**, plus the verbatim SDK driver source drops the patches need, plus a CI workflow that builds it natively on `ubuntu-24.04-arm` (~22 min) and ships `.deb` files as a tagged GitHub Release.
+This repo is the bridge: a hand-curated, bucketed patch set that ports ASK forward to **kernel.org 6.6.137 LTS**, plus the verbatim SDK driver source drops the patches need, plus a CI workflow that builds it natively on a self-hosted Azure ARM64 VM and ships `.deb` files as a tagged GitHub Release.
 
-The current released kernel is **`kernel-6.6.137-ask1`** (kernel base bumped from 6.6.135 to 6.6.137 to match VyOS upstream's `linux-image-6.6.137-vyos` package name; the askN counter resets on each kernel-base change).
+The current released kernel is **`kernel-6.6.137-ask31`** (the askN counter resets on each kernel-base change; ask31 absorbed 8 fully-convertible `fixes/` patches into the SDK source tree as direct edits annotated with `/* ASK-edit (ask31, …) */` markers — see `AGENTS.md` "Patch absorption" note).
 
 ---
 
@@ -18,8 +18,8 @@ lts_6.6_ls1046a/
 │   ├── patches/
 │   │   ├── vyos/    (3 patches)          # VyOS deltas, applied first
 │   │   ├── ask/     (8 patches)          # ASK fast-path hooks
-│   │   ├── fixes/   (5 patches)          # 6.6.y-specific repairs
-│   │   └── kernel/sdk-sources/  (265 files)  # verbatim NXP SDK drivers (lf-6.6.y mirror)
+│   │   ├── fixes/   (6 patches)          # 6.6.y-specific repairs
+│   │   └── kernel/sdk-sources/  (266 files)  # verbatim NXP SDK drivers (lf-6.6.y mirror) + direct edits under /* ASK-edit (askNN) */ markers
 │   ├── vyos-base/                        # VyOS defconfig fragments
 │   │   ├── arm64/vyos_defconfig
 │   │   └── *.config                      # filesystems / networking / netfilter / ...
@@ -55,7 +55,10 @@ The patch set applies in fixed order: `vyos/` → `ask/` → `fixes/`. Within ea
 | `fixes/` | 094 | `swphy-10g-fixed-link.patch` | 10G fixed-link swphy support |
 | `fixes/` | 095 | `leds-lp5812-register.patch` | Register lp5812 LED driver in `drivers/leds/Makefile`+`Kconfig` |
 | `fixes/` | 097 | `ask-fci-nlkey-narrow-gate.patch` | `net/key/ask_fci_nlkey.c` + `CONFIG_ASK_FCI_NLKEY` to register `NETLINK_KEY=32` without enabling the (broken-on-6.6) IPsec offload data path |
-| `fixes/` | 099 | `dpaa-ethtool-quiet-no-phy.patch` | Demote 6 `netdev_err("phy device not initialized")` callsites in `sdk_dpaa/dpaa_ethtool.c` to `netdev_dbg` (legitimate on fixed-link / SFP+ boards with no `phylink`) |
+| `fixes/` | 102 | `arm64-ioremap-cache-ns-shim.patch` | NXP-private arm64 helper aliases (`ioremap_cache_ns`, `pgprot_cached_ns`) needed for the lf-6.6.y SDK overlay to compile against mainline arm64 io.h |
+| `fixes/` | 110 | `sdk-fman-dpaa-qbman-kasan-sanitize-off.patch` | Disable KASAN instrumentation on `sdk_fman/`, `sdk_dpaa/`, `staging/fsl_qbman/` — these drivers do `memset()/memcpy()` against iomem which faults under KASAN shadow lookup |
+
+Note: 8 patches that previously lived in `fixes/` (`099`, `103`, `104`, `105`, `107`, `108`, `109`, `111`) were absorbed into the SDK source tree at ask31 as direct edits annotated with `/* ASK-edit (ask31, absorbed fixes/NNN): … */` markers. Audit them via `grep -rn 'ASK-edit' release/patches/kernel/sdk-sources/`. See `AGENTS.md` for the full rationale (dead-branch upstream, no rebase-safety penalty, `ask26+` direct-edit policy).
 
 ---
 
@@ -64,8 +67,8 @@ The patch set applies in fixed order: `vyos/` → `ask/` → `fixes/`. Within ea
 `scripts/patch-health.sh --source release` must report exactly:
 
 ```text
-Pass: 21   Fail: 0
-0 SDK conflicts (265 files to install)
+Pass: 17   Fail: 0
+0 SDK conflicts (266 files to install)
 ```
 
 These numbers are **producer-contract invariants**, not knobs. Lowering an assertion to make a failing build pass is forbidden (see `.clinerules/50-thresholds-are-authoritative.md`).
@@ -90,18 +93,17 @@ ASK on 6.6 deliberately does **not** enable `INET_IPSEC_OFFLOAD`; the IPsec offl
 | Script | Purpose |
 |---|---|
 | `scripts/patch-health.sh --source release` | Validate the patch set against pristine `linux-6.6.137`. Runs in seconds. |
-| `scripts/apply-to-tree.sh` | Apply patches AND copy verbatim SDK source drops into the kernel tree. Owns the 262-file invariant. |
+| `scripts/apply-to-tree.sh` | Apply patches AND copy verbatim SDK source drops into the kernel tree. Owns the 266-file invariant. |
 | `scripts/build-kernel.sh` | Native ARM64 kernel build → `work/build/*.deb`. |
 | `scripts/build-ask-modules.sh` | Out-of-tree ASK modules (cdx / fci / auto_bridge) → `ask-modules-*_arm64.deb`. Skipped when FMan SDK absent. |
 | `scripts/build-ask-iptables.sh` | Patched `iptables` source rebuild + `xt_QOSMARK` / `xt_QOSCONNMARK` extensions. |
 | `scripts/build-ask-ppp.sh` | Patched `ppp` (NXP ifindex fix) + `rp-pppoe` (CMM relay; needs ASK userspace). |
 | `scripts/run-pipeline.sh` | Linearises the lot. |
 | `scripts/publish-binaries.sh` | Ship to GitHub Release. |
-| `scripts/publish-release.sh` | Promote `work/derived/` → `release/` (legacy reconciliation flow). |
 | `scripts/normalize-patch.awk` | Pipe `git diff --no-prefix` through this when authoring patches. Repairs zero-prefix context lines so `git apply --check` accepts them strictly. |
 | `scripts/diff-vyos-config.sh` | Compare VyOS defconfig fragments vs an upstream reference. Useful when defconfig changes — surface the diff in the commit body. |
 
-CI: `.github/workflows/build-and-release.yml` runs natively on `ubuntu-24.04-arm`. **Tag pushes** to `kernel-*` publish a Release; **branch pushes** are safety-net builds only. ARM64 minutes are not free at scale — do not push branch + tag in the same `git push`. See `.clinerules/00-tag-discipline.md`.
+CI: `.github/workflows/build-and-release.yml` runs on a self-hosted Azure ARM64 VM (auto-powered on by the `start-vm` job, deallocated by `stop-vm` after build). **Tag pushes** to `kernel-*` publish a Release; **branch pushes** are safety-net builds only. ARM64 minutes are not free at scale — do not push branch + tag in the same `git push`. See `.clinerules/00-tag-discipline.md`.
 
 ---
 
@@ -118,7 +120,7 @@ Standard flow for a new `kernel-6.6.137-askN`:
 # 2. Re-extract pristine tree, validate
 rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
-#   Required: Pass: 21   Fail: 0   0 SDK conflicts   265 files
+#   Required: Pass: 17   Fail: 0   0 SDK conflicts   266 files
 
 # 3. Visually verify the affected file
 patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/0XX-name.patch
@@ -156,7 +158,7 @@ Full diagnostic checklists per chain live in [`AGENTS.md`](./AGENTS.md#two-chain
 `vyos-ls1046a-build` pins this repo by tag. From its CI:
 
 ```bash
-KERNEL_TAG="kernel-6.6.137-ask1"
+KERNEL_TAG="kernel-6.6.137-ask31"
 gh release download -R mihakralj/lts_6.6_ls1046a "$KERNEL_TAG" \
   --pattern 'linux-*.deb' \
   --pattern 'ask-modules-*.deb' \
@@ -178,16 +180,15 @@ The tag is immutable: byte-identical artefacts forever. The consumer's lockfile 
 | File | Purpose |
 |---|---|
 | `README.md` (this file) | Repo overview, patch inventory, current state. |
-| [`AGENTS.md`](./AGENTS.md) | Agent rules: tag discipline, patch-health invariants, defconfig invariants, two-chain failure model. |
-| [`FIXES.md`](./FIXES.md) | Historical SDK 5.15 → 6.6 import API-shim log (frozen; pre-bucketed era). |
-| [`FIX-PLAN-ASK-PCD.md`](./FIX-PLAN-ASK-PCD.md) | Chain-2 diagnosis (PCD MURAM exhaustion). Routed to `vyos-ls1046a-build`. |
-| [`FIX-PLAN-FCI-NETLINK-KEY.md`](./FIX-PLAN-FCI-NETLINK-KEY.md) | Chain-1 diagnosis history (resolved by ask50). |
+| [`AGENTS.md`](./AGENTS.md) | Agent rules: tag discipline, patch-health invariants, defconfig invariants, two-chain failure model, full askN history. |
+| [`SDK-AUDIT-ask26.md`](./SDK-AUDIT-ask26.md) | Direct-SDK-edit audit (findings A1..A5, all closed by ask27..ask30). |
 | `.clinerules/00-tag-discipline.md` | Producer release workflow rules. |
+| `.clinerules/05-workspace-layout.md` | Producer/consumer routing across the two-repo workspace. |
 | `.clinerules/10-patch-authoring.md` | Hunk-header arithmetic + verification loop. |
-| `.clinerules/20-sdk-driver-rules.md` | NXP SDK driver invariants (the why behind ASK). |
+| `.clinerules/20-sdk-driver-rules.md` | NXP SDK driver invariants + ask26+ direct-edit policy. |
 | `.clinerules/30-kconfig-defconfig.md` | Kconfig & defconfig discipline. |
 | `.clinerules/40-commit-style.md` | Commit / tag message style. |
-| `.clinerules/50-thresholds-are-authoritative.md` | Numeric invariants (16 / 0 / 262). |
+| `.clinerules/50-thresholds-are-authoritative.md` | Numeric invariants (`Pass: 17`, `0 SDK conflicts`, `266 files to install`). |
 | `.clinerules/60-tooling-paths.md` | Canonical tooling paths. |
 
 ---
