@@ -31,6 +31,12 @@
  */
 
 
+
+/* ASK-edit (ask31, absorbed fixes/103): guard MIN()/MAX() macros with
+ * #ifndef. Mainline 6.6 added <linux/minmax.h> to several headers
+ * transitively included by the SDK; redefinition produced
+ * -Werror=macro-redefined.
+ */
 /**************************************************************************//**
  @File          ncsw_ext.h
 
@@ -162,8 +168,12 @@ do                                      \
 #define CYCLES_TO_PSEC(cycles,clk)  (((cycles) * 1000000) / (clk))
 
 /* Min, Max macros */
+#ifndef MIN
 #define MIN(a,b)    ((a) < (b) ? (a) : (b))
+#endif
+#ifndef MAX
 #define MAX(a,b)    ((a) > (b) ? (a) : (b))
+#endif
 #define IN_RANGE(min,val,max) ((min)<=(val) && (val)<=(max))
 
 #define ABS(a)  ((a<0)?(a*-1):a)

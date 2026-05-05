@@ -29,6 +29,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+
+/* ASK-edit (ask31, absorbed fixes/104): phylink compat shims for 6.6.
+ * #define PHY_INTERFACE_MODE_2500SGMII PHY_INTERFACE_MODE_2500BASEX
+ * (NXP renamed in lf-6.x) and a static-inline phylink_interface_max_speed()
+ * stub. Mainline 6.6 lacks both; SDK calls them in port-init paths gated
+ * by phylink.
+ */
 #ifdef CONFIG_FSL_DPAA_ETH_DEBUG
 #define pr_fmt(fmt) \
 	KBUILD_MODNAME ": %s:%hu:%s() " fmt, \
@@ -67,6 +74,31 @@
 	| SUPPORTED_FIBRE \
 	| SUPPORTED_MII \
 	| SUPPORTED_Backplane)
+
+/*
+ * Mainline 6.6 compatibility shims for the lf-6.6.y SDK.
+ * Mainline does not define PHY_INTERFACE_MODE_2500SGMII (uses 2500BASEX
+ * instead) and does not export phylink_interface_max_speed().
+ */
+#ifndef PHY_INTERFACE_MODE_2500SGMII
+#define PHY_INTERFACE_MODE_2500SGMII PHY_INTERFACE_MODE_2500BASEX
+#endif
+static inline int phylink_interface_max_speed(phy_interface_t mode)
+{
+	switch (mode) {
+	case PHY_INTERFACE_MODE_XGMII:
+	case PHY_INTERFACE_MODE_USXGMII:
+	case PHY_INTERFACE_MODE_10GBASER:
+	case PHY_INTERFACE_MODE_10GKR:
+		return SPEED_10000;
+	case PHY_INTERFACE_MODE_2500BASEX:
+		return SPEED_2500;
+	case PHY_INTERFACE_MODE_MII:
+		return SPEED_100;
+	default:
+		return SPEED_1000;
+	}
+}
 
 static struct mac_device * __cold
 alloc_macdev(struct device *dev, size_t sizeof_priv,

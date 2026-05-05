@@ -31,6 +31,13 @@
  */
 
 
+
+/* ASK-edit (ask31, absorbed fixes/111): MemacAddHashMacAddress NULL-checks
+ * the result of XX_Malloc and returns E_NO_MEMORY. The path is reachable
+ * from any dev_mc_add() against an FMAN-backed netdev (IGMP joins, IPv6
+ * ND, mcast-offload ADD); on XX_Malloc failure (ENOMEM under pressure /
+ * fault injection) the next line was a NULL-deref panic.
+ */
 /******************************************************************************
  @File          memac.c
 
@@ -793,6 +800,8 @@ static t_Error MemacAddHashMacAddress(t_Handle h_Memac, t_EnetAddr *p_EthAddr)
 
     /* Create element to be added to the driver hash table */
     p_HashEntry = (t_EthHashEntry *)XX_Malloc(sizeof(t_EthHashEntry));
+    if (!p_HashEntry)
+        RETURN_ERROR(MAJOR, E_NO_MEMORY, ("hash entry"));
     p_HashEntry->addr = ethAddr;
     INIT_LIST(&p_HashEntry->node);
 

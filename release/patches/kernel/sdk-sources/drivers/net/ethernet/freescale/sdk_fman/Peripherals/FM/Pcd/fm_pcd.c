@@ -32,6 +32,14 @@
  */
 
 
+
+/* ASK-edit (ask31, absorbed fixes/109): FmPcdLockTryLockAll uses
+ * SINGLE_DEPTH_NESTING at the inner site so the outer h_FmPcd->h_Spinlock
+ * and per-object inner locks (which all share the same lockdep class)
+ * don't trip the recursive-locking warning that fired on every dpa_app ->
+ * FM_PORT_SetPCD -> LnxwrpFmPortIOCTL path. Companion edits in xx_ext.h
+ * and xx_arm_linux.c add XX_LockIntrSpinlockNested.
+ */
 /******************************************************************************
  @File          fm_pcd.c
 
@@ -805,7 +813,13 @@ bool FmPcdLockTryLockAll(t_Handle h_FmPcd)
     LIST_FOR_EACH(p_Pos, &((t_FmPcd*)h_FmPcd)->acquiredLocksLst)
     {
         t_FmPcdLock *p_Lock = FM_PCD_LOCK_OBJ(p_Pos);
-        if (!FmPcdLockTryLock(p_Lock))
+        /* Nested subclass: the FmPcd lock is already held (above), and
+         * each inner per-object lock is a distinct instance of the same
+         * XX_InitSpinlock lockdep class. Lockdep needs the nesting hint
+         * to distinguish outer from inner — otherwise it (correctly)
+         * reports the class-level collision as a deadlock.
+         */
+        if (!FmPcdLockTryLockNested(p_Lock, SINGLE_DEPTH_NESTING))
         {
             p_SavedPos = p_Pos;
             break;

@@ -29,6 +29,12 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+
+/* ASK-edit (ask31, absorbed fixes/099): demote 6 'phy device not initialized'
+ * netdev_err sites to netdev_dbg. Boards with fixed-link / SFP+ cages
+ * legitimately have mac_dev->phy_dev == NULL; PHY-only ethtool ioctls
+ * filled dmesg with KERN_ERR per VyOS commit. -ENODEV returns unchanged.
+ */
 #ifdef CONFIG_FSL_DPAA_ETH_DEBUG
 #define pr_fmt(fmt) \
 	KBUILD_MODNAME ": %s:%hu:%s() " fmt, \
@@ -125,7 +131,7 @@ static int __cold dpa_set_ksettings(struct net_device *net_dev,
 		return -ENODEV;
 	}
 	if (unlikely(priv->mac_dev->phy_dev == NULL)) {
-		netdev_err(net_dev, "phy device not initialized\n");
+		netdev_dbg(net_dev, "phy device not initialized\n");
 		return -ENODEV;
 	}
 
@@ -180,7 +186,7 @@ static int __cold dpa_nway_reset(struct net_device *net_dev)
 		return -ENODEV;
 	}
 	if (unlikely(priv->mac_dev->phy_dev == NULL)) {
-		netdev_err(net_dev, "phy device not initialized\n");
+		netdev_dbg(net_dev, "phy device not initialized\n");
 		return -ENODEV;
 	}
 
@@ -212,7 +218,7 @@ static void __cold dpa_get_pauseparam(struct net_device *net_dev,
 
 	phy_dev = mac_dev->phy_dev;
 	if (unlikely(phy_dev == NULL)) {
-		netdev_err(net_dev, "phy device not initialized\n");
+		netdev_dbg(net_dev, "phy device not initialized\n");
 		return;
 	}
 
@@ -240,7 +246,7 @@ static int __cold dpa_set_pauseparam(struct net_device *net_dev,
 
 	phy_dev = mac_dev->phy_dev;
 	if (unlikely(phy_dev == NULL)) {
-		netdev_err(net_dev, "phy device not initialized\n");
+		netdev_dbg(net_dev, "phy device not initialized\n");
 		return -ENODEV;
 	}
 
@@ -327,7 +333,7 @@ static int dpa_get_eee(struct net_device *net_dev, struct ethtool_eee *et_eee)
 	}
 
 	if (unlikely(priv->mac_dev->phy_dev == NULL)) {
-		netdev_err(net_dev, "phy device not initialized\n");
+		netdev_dbg(net_dev, "phy device not initialized\n");
 		return -ENODEV;
 	}
 
@@ -345,7 +351,7 @@ static int dpa_set_eee(struct net_device *net_dev, struct ethtool_eee *et_eee)
 	}
 
 	if (unlikely(priv->mac_dev->phy_dev == NULL)) {
-		netdev_err(net_dev, "phy device not initialized\n");
+		netdev_dbg(net_dev, "phy device not initialized\n");
 		return -ENODEV;
 	}
 

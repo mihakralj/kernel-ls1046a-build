@@ -30,6 +30,12 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+
+/* ASK-edit (ask31, absorbed fixes/105): static-inline skb_recycle() shim.
+ * The helper was removed from mainline before 6.6; SDK fast-path RX still
+ * calls it. Replicates the original semantics (release head state, zero
+ * shinfo up to dataref, set dataref=1, zero skb up to tail).
+ */
 #ifdef CONFIG_FSL_DPAA_ETH_DEBUG
 #define pr_fmt(fmt) \
 	KBUILD_MODNAME ": %s:%hu:%s() " fmt, \
@@ -44,6 +50,25 @@
 #include <linux/highmem.h>
 #include <linux/fsl_bman.h>
 #include <net/sock.h>
+
+/*
+ * skb_recycle() was removed from mainline; the SDK still calls it.
+ * Provide a static inline equivalent: release head state, reset
+ * shinfo refcount, zero the skb up to ->tail.  The caller (this file
+ * at the only call site) immediately overrides skb->data and tailptr
+ * so we don't bother setting them here.
+ */
+static inline void skb_recycle(struct sk_buff *skb)
+{
+	struct skb_shared_info *shinfo;
+
+	skb_release_head_state(skb);
+	shinfo = skb_shinfo(skb);
+	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
+	atomic_set(&shinfo->dataref, 1);
+	memset(skb, 0, offsetof(struct sk_buff, tail));
+}
+
 
 #include "dpaa_eth.h"
 #include "dpaa_eth_common.h"
