@@ -1194,8 +1194,14 @@ static int abm_l2flow_table_init(void)
 
 	brroute_cache = kmem_cache_create("brroute_cache",
 					 sizeof(struct br_event_table), 0, 0, NULL);
-	if (!brroute_cache)
+	if (!brroute_cache) {
+		/* ASK-edit (audit-b4 / AB-05): release l2flow_cache on
+		 * brroute_cache alloc failure; otherwise the slab leaks
+		 * across module-init failure paths. */
+		kmem_cache_destroy(l2flow_cache);
+		l2flow_cache = NULL;
 		return -ENOMEM;
+	}
 	
 
 	return 0;
@@ -1587,7 +1593,10 @@ static int abm_init(void)
 	return 0;
 
 err_sysctl_exit:
-	/* sysctl cleanup would go here if abm_sysctl_exit() existed */
+	/* ASK-edit (audit-b4 / AB-06): abm_sysctl_fini() exists; the
+	 * stale comment claimed otherwise. Without this call, the
+	 * pernet sysctl subsys leaks on nf_register_net_hooks failure. */
+	abm_sysctl_fini();
 err_proc_fini:
 	abm_proc_fini();
 err_nl_exit:
@@ -1617,6 +1626,9 @@ static void abm_exit(void)
 	abm_nl_exit();
 	br_fdb_deregister_can_expire_cb();
 	abm_l2flow_table_exit();
+	/* ASK-edit (audit-b4 / AB-06): mirror init ordering — sysctl
+	 * was registered after proc, so unregister it before proc on exit. */
+	abm_sysctl_fini();
 	abm_proc_fini();
 }
 
