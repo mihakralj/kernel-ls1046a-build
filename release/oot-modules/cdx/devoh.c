@@ -325,7 +325,7 @@ int dpa_add_oh_if(char *name)
 	strscpy(&info.port_name[0], name, IF_NAME_SIZE);
 	info.port_name[IF_NAME_SIZE - 1] = '\0';
 
-	if (sprintf(oh_iface_name, "oh%d", port_idx-1) < 0) {
+	if (snprintf(oh_iface_name, sizeof(oh_iface_name), "oh%d", port_idx-1) < 0) { /* B6 P1.06 */
 		DPA_ERROR("%s::invalid port_idx %u\n", __FUNCTION__, port_idx);
 		return FAILURE;
 	}
@@ -588,7 +588,7 @@ int cdxdrv_create_of_fqs(struct dpa_iface_info *dpa_oh_iface_info)
 	port_info->ohinfo = iface_info; 		
 	port_info->channel = iface_info->channel_id;
 	//save name
-	sprintf(&port_info->name[0], 
+	snprintf(&port_info->name[0], sizeof(port_info->name), /* B6 P1.06 */
 			"dpa-fman%d-oh@%d", iface_info->fman_idx, (iface_info->port_idx + 1));
 	//assign port to Wifi/ipsec etc based on user config
 	for (ii = 0; ii < MAX_OH_PORT_ASSIGN; ii++) {
