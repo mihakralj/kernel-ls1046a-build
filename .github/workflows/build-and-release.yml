@@ -140,9 +140,9 @@ jobs:
           fi
           KVER="${KERNEL_VERSION_INPUT:-$TAG_KVER}"
           if [[ -n "$KVER" ]]; then
-              ./scripts/run-pipeline.sh "$KVER" --no-derive --build --ask-extras
+              ./scripts/run-pipeline.sh "$KVER" --build --ask-extras
           else
-              ./scripts/run-pipeline.sh --no-derive --build --ask-extras
+              ./scripts/run-pipeline.sh --build --ask-extras
           fi
 
       - name: Collect artefacts
