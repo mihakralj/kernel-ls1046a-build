@@ -37,6 +37,8 @@
 #define NCSW_LINUX
 
 #define LS1043
+#define DPAA_VERSION 11
+#define CONFIG_FMAN_ARM 1
 
 #define DEBUG_ERRORS        1
 

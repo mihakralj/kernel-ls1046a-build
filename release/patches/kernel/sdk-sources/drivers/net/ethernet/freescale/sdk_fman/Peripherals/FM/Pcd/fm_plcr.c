@@ -159,6 +159,14 @@ static t_Error SetProfileNia(t_FmPcd *p_FmPcd, e_FmPcdEngine nextEngine, u_FmPcd
                 RETURN_ERROR(MAJOR, E_INVALID_STATE, ("Invalid profile "));
             nia |= NIA_ENG_PLCR | NIA_PLCR_ABSOLUTE | absoluteProfileId;
             break;
+		case e_FM_PCD_PRS:
+			//send it to parser
+			nia |= 0x00480200;
+			break;
+		case e_FM_PCD_CC:
+			//send it to coarse classifier
+			nia |= 0x26;
+			break;
         default:
             RETURN_ERROR(MAJOR, E_INVALID_SELECTION, NO_MSG);
     }
@@ -343,7 +351,7 @@ static t_Error BuildProfileRegs(t_FmPcd                     *p_FmPcd,
 
     bitFor1Micro = FmGetTimeStampScale(p_FmPcd->h_Fm);
     if (bitFor1Micro == 0)
-    RETURN_ERROR(MAJOR, E_NOT_AVAILABLE, ("Timestamp scale"));
+		RETURN_ERROR(MAJOR, E_NOT_AVAILABLE, ("Timestamp scale"));
 
 /* Set G, Y, R Nia */
     err = SetProfileNia(p_FmPcd, p_ProfileParams->nextEngineOnGreen,  &(p_ProfileParams->paramsOnGreen), &gnia);
@@ -458,7 +466,8 @@ cont_rfc:
                                 pemode |= FM_PCD_PLCR_PEMODE_FLS_L4;
                                 break;
                             case e_FM_PCD_PLCR_FULL_FRM_LEN:
-                                pemode |= FM_PCD_PLCR_PEMODE_FLS_FULL;
+								/* for full frame length, include FCS size for calculation */
+								pemode |= (FM_PCD_PLCR_PEMODE_FLS_FULL | FM_PCD_PLCR_PEMODE_FCS);
                                 break;
                             default:
                                 RETURN_ERROR(MAJOR, E_INVALID_SELECTION, NO_MSG);

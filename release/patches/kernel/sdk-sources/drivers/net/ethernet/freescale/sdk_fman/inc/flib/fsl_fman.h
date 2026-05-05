@@ -35,6 +35,7 @@
 
 #include "common/general.h"
 
+//#define AUTO_FIRMWARE_LOAD 1  // currently flash the bin file
 struct fman_ext_pool_params {
 	uint8_t                 id;    /**< External buffer pool id */
 	uint16_t                size;  /**< External buffer pool buffer size */
