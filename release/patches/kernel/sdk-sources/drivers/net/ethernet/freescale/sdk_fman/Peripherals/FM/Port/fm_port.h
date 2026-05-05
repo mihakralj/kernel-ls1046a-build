@@ -944,7 +944,12 @@ typedef struct {
 
 	bool				supportFE;
 	uintptr_t			internalFEBufferPoolManagementIndexAddr;
-	uintptr_t			internalFEBufferPoolManagementAddr;
+	/* ASK-edit (ask28): renamed stale 'internalFEBufferPoolManagementAddr'
+	 * to 'internalFEBufferPoolAddr' to match the 5 use sites in fm_port.c
+	 * (FmPortSetFESupport / FmPortDelFESupport, lines 2240-2298). The
+	 * 'Management' variant was a leftover typo with zero callers in the
+	 * lf-6.6.y SDK overlay. */
+	uintptr_t			internalFEBufferPoolAddr;
 #endif /* (DPAA_VERSION >= 11) */
     t_FmPortDsarVars            deepSleepVars;
     t_FmPortDriverParam         *p_FmPortDriverParam;

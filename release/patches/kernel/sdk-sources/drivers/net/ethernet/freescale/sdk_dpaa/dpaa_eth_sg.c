@@ -56,10 +56,17 @@
 #if defined(CONFIG_IP_NF_CONNTRACK_MARK) || defined(CONFIG_NF_CONNTRACK_MARK)
 #include "net/netfilter/nf_conntrack.h"
 #endif // CONFIG_IP_NF_CONNTRACK_MARK ||  CONFIG_NF_CONNTRACK_MARK
-#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
+/* ASK-edit (ask28): hoist <uapi/linux/{if_ether,ppp_defs,if_pppox}.h>
+ * out of the CONFIG_INET_IPSEC_OFFLOAD gate. ask26 hoisted dpa_get_skb_nh()
+ * (which uses ETH_P_*, PPP_IP, PPP_IPV6, ETH_P_PPP_SES) above the gate
+ * for use by cpe_fp_tx() under plain CONFIG_CPE_FAST_PATH, but left these
+ * three uapi includes inside the IPSEC gate, making the constants undeclared
+ * when CONFIG_INET_IPSEC_OFFLOAD=n (the producer invariant). <net/xfrm.h>
+ * stays inside the gate — only the IPSEC helpers below need it. */
 #include <uapi/linux/if_ether.h>
 #include <uapi/linux/ppp_defs.h>
 #include <uapi/linux/if_pppox.h>
+#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
 #include <net/xfrm.h>
 #endif
 
