@@ -1227,7 +1227,14 @@ Status: feature not supported
                 }
             }
 
-            ASSERT_COND(param->keys_params.num_of_keys <= IOC_FM_PCD_MAX_NUM_OF_KEYS);
+            /* ASK-edit (ask27): ASSERT_COND compiles out under DISABLE_ASSERTIONS;
+             * num_of_keys is user-supplied and bounds copy_from_user() into keys[]/masks[].
+             * Replace with hard runtime check returning -EINVAL. */
+            if (param->keys_params.num_of_keys > IOC_FM_PCD_MAX_NUM_OF_KEYS)
+            {
+                XX_Free(param);
+                return -EINVAL;
+            }
             ASSERT_COND(param->keys_params.key_size <= IOC_FM_PCD_MAX_SIZE_OF_KEY);
 
             /* support for indexed lookup */

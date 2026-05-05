@@ -220,7 +220,8 @@ static __init int fsl_ceetm_init(struct device_node *node)
 		sp->dcp_idx = dcp_portal;
 		sp->is_claimed = 0;
 		list_add_tail(&sp->node, &qman_ceetms[dcp_portal].sub_portals);
-		sp++;
+		/* ASK-edit (ask27): dropped dead sp++ — sp is reset by next iter's kzalloc;
+		 * the increment was misleading and a hand-edit away from OOB-deref. */
 	}
 	pr_debug("Qman: Reserve sub-portal %d:%d for CEETM %d\n",
 		 be32_to_cpu(range[0]), be32_to_cpu(range[1]), dcp_portal);
@@ -251,7 +252,7 @@ static __init int fsl_ceetm_init(struct device_node *node)
 		lni->is_claimed = 0;
 		INIT_LIST_HEAD(&lni->channels);
 		list_add_tail(&lni->node, &qman_ceetms[dcp_portal].lnis);
-		lni++;
+		/* ASK-edit (ask27): dropped dead lni++ — lni is reset by next iter's kzalloc. */
 	}
 	pr_debug("Qman: Reserve LNI %d:%d for CEETM %d\n",
 		 be32_to_cpu(range[0]), be32_to_cpu(range[1]), dcp_portal);

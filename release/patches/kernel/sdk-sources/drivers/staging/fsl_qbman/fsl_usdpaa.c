@@ -910,9 +910,10 @@ static long ioctl_id_alloc(struct ctx *ctx, void __user *arg)
 	struct usdpaa_ioctl_id_alloc i = {0};
 	const struct alloc_backend *backend;
 	struct active_resource *res;
-	int ret = copy_from_user(&i, arg, sizeof(i));
-	if (ret)
-		return ret;
+	int ret;
+	/* ASK-edit (ask27): copy_from_user returns uncopied-byte count, must map to -EFAULT */
+	if (copy_from_user(&i, arg, sizeof(i)))
+		return -EFAULT;
 	if ((i.id_type >= usdpaa_id_max) || !i.num)
 		return -EINVAL;
 	backend = &alloc_backends[i.id_type];
@@ -922,10 +923,10 @@ static long ioctl_id_alloc(struct ctx *ctx, void __user *arg)
 		return ret;
 	i.num = ret;
 	/* Copy the result to user-space */
-	ret = copy_to_user(arg, &i, sizeof(i));
-	if (ret) {
+	/* ASK-edit (ask27): copy_to_user returns uncopied-byte count, must map to -EFAULT */
+	if (copy_to_user(arg, &i, sizeof(i))) {
 		backend->release(i.base, i.num);
-		return ret;
+		return -EFAULT;
 	}
 	/* Assign the allocated range to the FD accounting */
 	res = kmalloc(sizeof(*res), GFP_KERNEL);
@@ -948,9 +949,9 @@ static long ioctl_id_release(struct ctx *ctx, void __user *arg)
 	const struct alloc_backend *backend;
 	struct active_resource *tmp, *pos;
 
-	int ret = copy_from_user(&i, arg, sizeof(i));
-	if (ret)
-		return ret;
+	/* ASK-edit (ask27): copy_from_user returns uncopied-byte count, must map to -EFAULT */
+	if (copy_from_user(&i, arg, sizeof(i)))
+		return -EFAULT;
 	if ((i.id_type >= usdpaa_id_max) || !i.num)
 		return -EINVAL;
 	backend = &alloc_backends[i.id_type];
@@ -986,10 +987,11 @@ static long ioctl_id_reserve(struct ctx *ctx, void __user *arg)
 	struct usdpaa_ioctl_id_reserve i = {0};
 	const struct alloc_backend *backend;
 	struct active_resource *tmp, *pos;
+	int ret;
 
-	int ret = copy_from_user(&i, arg, sizeof(i));
-	if (ret)
-		return ret;
+	/* ASK-edit (ask27): copy_from_user returns uncopied-byte count, must map to -EFAULT */
+	if (copy_from_user(&i, arg, sizeof(i)))
+		return -EFAULT;
 	if ((i.id_type >= usdpaa_id_max) || !i.num)
 		return -EINVAL;
 	backend = &alloc_backends[i.id_type];
@@ -1319,7 +1321,11 @@ static long ioctl_dma_stats(struct ctx *ctx, void __user *arg)
 			result.free_bytes += frag->len;
 	}
 
-	return copy_to_user(arg, &result, sizeof(result)); }
+	/* ASK-edit (ask27): copy_to_user returns uncopied-byte count, must map to -EFAULT */
+	if (copy_to_user(arg, &result, sizeof(result)))
+		return -EFAULT;
+	return 0;
+}
 
 static int test_lock(struct mem_mapping *map)
 {

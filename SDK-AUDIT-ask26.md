@@ -32,7 +32,7 @@ Status legend per item: `[ ]` open · `[x]` fixed in a later askN.
 
 ## P0 — Userspace boundary / OOB / panic
 
-### A1. `fsl_usdpaa.c` — copy_*_user return value treated as -EFAULT [P0]
+### A1. `fsl_usdpaa.c` — copy_*_user return value treated as -EFAULT [P0] [x ask27]
 
 Many call sites return `int ret = copy_from_user(...); if (ret) return ret;`
 **`copy_*_user` returns the count of uncopied bytes (positive on
@@ -46,7 +46,7 @@ Routing: **ASK-edit**. Replace each pattern in
 `release/patches/kernel/sdk-sources/drivers/staging/fsl_qbman/fsl_usdpaa.c`,
 mark each with `/* ASK-edit (askNN): copy_from_user returns uncopied-byte count, must map to -EFAULT */`.
 
-### A2. `lnxwrp_ioctls_fm.c` — `ASSERT_COND` on user-supplied bounds [P0]
+### A2. `lnxwrp_ioctls_fm.c` — `ASSERT_COND` on user-supplied bounds [P0] [x ask27]
 
 `src/wrapper/lnxwrp_ioctls_fm.c:1230-1231` uses `ASSERT_COND(num_of_keys
 <= IOC_FM_PCD_MAX_NUM_OF_KEYS)` to bound a user-supplied count BEFORE
@@ -63,7 +63,7 @@ loop bound.
 Routing: **ASK-edit** in `lnxwrp_ioctls_fm.c`,
 `lnxwrp_ioctls_fm_compat.c`, and any sibling `*_ioctls_*.c`.
 
-### A3. `qman_driver.c` — `sp++` after `list_add_tail` [P0/dead-code]
+### A3. `qman_driver.c` — `sp++` after `list_add_tail` [P0/dead-code] [x ask27]
 
 `qman_driver.c:223` and `:255` increment a pointer (`sp++`, `lni++`) that
 already belongs to a linked list, after the previous iteration kzalloc'd
