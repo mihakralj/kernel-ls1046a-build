@@ -2,7 +2,7 @@
 # apply-to-tree.sh — wet-run counterpart of patch-health.sh.
 #
 # Takes a clean linux-6.6.y source tree and turns it into an ASK-ready tree by:
-#   1. Copying release/patches/kernel/sdk-sources/ into the tree (264 files)
+#   1. Copying release/patches/kernel/sdk-sources/ into the tree (266 files)
 #   2. Applying every release/patches/{vyos,ask,fixes}/*.patch in subdir + name
 #      sort order (-p1). Layout mirrors ASK-mono:
 #        vyos/001..003-vyos-*.patch                     (VyOS deltas)
@@ -104,7 +104,7 @@ esac
 [[ -d "$PATCH_ROOT" ]]           || err "patch dir missing: $PATCH_ROOT"
 [[ -f "$CFG_FRAG" ]]             || err "config fragment missing: $CFG_FRAG"
 # SDK sources live under kernel/sdk-sources/ (kept there to avoid churn on
-# 264 unchanged files). Every other *.patch lives under vyos/, ask/, or fixes/.
+# 266 unchanged files). Every other *.patch lives under vyos/, ask/, or fixes/.
 SDK_DIR="$PATCH_ROOT/kernel/sdk-sources"
 [[ -d "$SDK_DIR" ]] || err "SDK source dir missing: $SDK_DIR"
 # Apply order: vyos/ first (so ASK hooks stack on top of VyOS deltas),

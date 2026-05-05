@@ -21,13 +21,13 @@ Never propose:
 
 ## SDK source drops are verbatim
 
-Files under `release/patches/kernel/sdk-sources/<mirrored-path>` (264 files) are dropped into the kernel tree by `scripts/apply-to-tree.sh`. They are:
+Files under `release/patches/kernel/sdk-sources/<mirrored-path>` (266 files) are dropped into the kernel tree by `scripts/apply-to-tree.sh`. They are:
 
 - **NOT** patches — never converted to `.patch` form.
 - **NOT** to be edited to fix SDK behavior — fix via an `ask/` or `fixes/` patch that modifies the file after copy.
 - Refreshed only by re-importing from a known NXP SDK reference tag.
 
-The `264 files to install` count from `patch-health.sh` is an invariant. If a refresh adds/removes files, the count assertion in CI must be updated **deliberately**, with the change called out in the commit message.
+The `266 files to install` count from `patch-health.sh` is an invariant. If a refresh adds/removes files, the count assertion in CI must be updated **deliberately**, with the change called out in the commit message.
 
 ## Patch ownership for SDK behavior
 

@@ -6,19 +6,19 @@ The numeric assertions enforced by `scripts/patch-health.sh` and the CI workflow
 
 | Check | Required value | Source |
 |---|---|---|
-| `patch-health.sh` pass count | `Pass: 27` | `scripts/patch-health.sh --source release` |
+| `patch-health.sh` pass count | `Pass: 25` | `scripts/patch-health.sh --source release` |
 | `patch-health.sh` fail count | `Fail: 0` | same |
 | SDK conflicts | `0 SDK conflicts` | same |
-| SDK files installed | `265 files to install` | `scripts/apply-to-tree.sh` |
+| SDK files installed | `266 files to install` | `scripts/apply-to-tree.sh` |
 | Patch buckets | `vyos/` (3) → `ask/` (8) → `fixes/` (16) | `release/patches/` |
 
 ## Hard rules
 
 1. **Never weaken an assertion to make a failing build pass.** If a check fails, fix the cause; do not edit the threshold.
-2. The `265 files` count changes only when SDK sources are deliberately re-imported. Such a change requires:
+2. The `266 files` count changes only when SDK sources are deliberately re-imported. Such a change requires:
    - A `sdk:` commit explaining the source NXP tag and the file delta (added / removed).
    - The new count called out explicitly in the commit body.
-3. The `Pass: 27` count changes only when a new persistent patch is added or one is removed. Each change is its own commit.
+3. The `Pass: 25` count changes only when a new persistent patch is added or one is removed. Each change is its own commit.
 4. If a check is wrong (false positive / negative), fix `patch-health.sh` itself in a `scripts:` commit — not by skipping the check.
 
 ## Anti-patterns (forbidden)

@@ -6,7 +6,7 @@ Use the existing scripts under `scripts/` rather than re-implementing their logi
 
 | Script | Purpose |
 |---|---|
-| `scripts/patch-health.sh --source release` | Validate the patch set. Must report `Pass: 21`, `Fail: 0`, `0 SDK conflicts`, `265 files to install`. |
+| `scripts/patch-health.sh --source release` | Validate the patch set. Must report `Pass: 25`, `Fail: 0`, `0 SDK conflicts`, `266 files to install`. |
 | `scripts/apply-to-tree.sh` | Apply patches AND copy verbatim SDK source drops into the kernel tree. Owns the 262-file invariant. |
 | `scripts/run-pipeline.sh` | Full local build pipeline. Slow; use when verifying end-to-end. |
 | `scripts/build-kernel.sh` | Kernel-only build step. |
