@@ -481,16 +481,35 @@ return;
 
 FCI_PRINTK(FCI_INBOUND, "FCI: %s\n", __func__);
 
-	/* B4 F-01: validate nlmsg header before dereferencing payload. */
-	if (skb->len < NLMSG_HDRLEN || !NLMSG_OK(nlh, skb->len)) {
-		this_fci->stats.rx_msg_err++;
-		return;
-	}
+/* B4 F-01: validate nlmsg header before dereferencing payload. */
+if (skb->len < NLMSG_HDRLEN || !NLMSG_OK(nlh, skb->len)) {
+this_fci->stats.rx_msg_err++;
+return;
+}
 
-	/* extract fci message from skb */
-	fci_msg = nlmsg_data(nlh);
+/* B4 F-01 (cont.): bound the FCI message header itself before
+ * dereferencing fci_msg->fcode / fci_msg->length. nlmsg_len(nlh)
+ * is the payload size after NLMSG_HDRLEN; require at least one
+ * FCI header. */
+if (nlmsg_len(nlh) < FCI_MSG_HDR_SIZE) {
+this_fci->stats.rx_msg_err++;
+return;
+}
 
-	this_fci->stats.rx_msg++;
+/* extract fci message from skb */
+fci_msg = nlmsg_data(nlh);
+
+/* B4 F-01 (cont.): user-supplied fci_msg->length is forwarded as-is
+ * into comcerto_fpp_send_command(...,length,payload,...). Bound it
+ * against both the FCI hard cap and the actual netlink payload, or
+ * the FE reads past the end of the netlink buffer. */
+if (fci_msg->length > FCI_MSG_MAX_PAYLOAD ||
+    fci_msg->length > nlmsg_len(nlh) - FCI_MSG_HDR_SIZE) {
+this_fci->stats.rx_msg_err++;
+return;
+}
+
+this_fci->stats.rx_msg++;
 
 	this_fci->stats.sock_stats[FCI_NL_FF].rx_msg++;
 
