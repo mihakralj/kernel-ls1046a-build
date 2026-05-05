@@ -2067,9 +2067,15 @@ t_Error FM_PORT_SetErrorsRoute(t_Handle h_FmPort, fmPortFrameErrSelect_t errs);
 
  @Cautions      Allowed only following FM_PORT_Config() and before FM_PORT_Init().
 *//***************************************************************************/
-#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
+/* ASK-edit (ask32): drop CONFIG_INET_IPSEC_OFFLOAD gate. The OOT cdx module
+ * (release/oot-modules/cdx/devman.c::dpa_bman_reconfigure_discard_mask, gated
+ * by -DDPA_IPSEC_OFFLOAD) calls this unconditionally; on 6.6.y both
+ * CONFIG_INET_IPSEC_OFFLOAD and CONFIG_INET6_IPSEC_OFFLOAD are =n (xfrm_state
+ * lacks the curr_time/offloaded fields the offload path needs), so without
+ * this edit the prototype is hidden and the OOT compile fails with
+ * implicit-function-declaration. The underlying flib helper
+ * fman_port_set_discard_mask() is unconditional. */
 t_Error FM_PORT_SetDiscardMask(t_Handle h_FmPort, fmPortFrameErrSelect_t errs);
-#endif
 /**************************************************************************//**
  @Function      FM_PORT_SetIMExceptions
 

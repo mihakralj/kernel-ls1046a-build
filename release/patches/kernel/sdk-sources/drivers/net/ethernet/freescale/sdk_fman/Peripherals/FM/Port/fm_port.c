@@ -4098,7 +4098,10 @@ t_Error FM_PORT_SetErrorsRoute(t_Handle h_FmPort, fmPortFrameErrSelect_t errs)
     return E_OK;
 }
 
-#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
+/* ASK-edit (ask32): drop CONFIG_INET_IPSEC_OFFLOAD gate; the OOT cdx module
+ * calls this from a non-IPSEC code path (-DDPA_IPSEC_OFFLOAD), and on 6.6.y
+ * the kernel CONFIG_INET_IPSEC_OFFLOAD/CONFIG_INET6_IPSEC_OFFLOAD are =n.
+ * fman_port_set_discard_mask() is unconditional, so this is safe. */
 t_Error FM_PORT_SetDiscardMask(t_Handle h_FmPort, fmPortFrameErrSelect_t errs)
 {
     t_FmPort *p_FmPort = (t_FmPort*)h_FmPort;
@@ -4111,7 +4114,6 @@ t_Error FM_PORT_SetDiscardMask(t_Handle h_FmPort, fmPortFrameErrSelect_t errs)
     return E_OK;
 }
 EXPORT_SYMBOL(FM_PORT_SetDiscardMask);
-#endif
 
 t_Error FM_PORT_SetAllocBufCounter(t_Handle h_FmPort, uint8_t poolId,
                                    bool enable)
