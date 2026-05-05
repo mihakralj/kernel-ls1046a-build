@@ -40,8 +40,24 @@ extern void disp_sch_info(void *);
 extern void *FmMurambaseAddr;
 en_exthash_global_mem *en_global_muram_mem = NULL;
 
-extern void get_indexed_hash_bucket(uint8_t key_size,  uint8_t *key_ptr,
-	        uint8_t crc_shift, uint16_t mask, uint16_t *bucket_index);
+/* ASK-edit (ask30): get_indexed_hash_bucket() is declared extern in the
+ * NXP ask-6.6-port source but no definition exists anywhere in the kernel
+ * tree (the symbol is provided in lf-6.12.y by an out-of-tree helper that
+ * was not ported). The single call site at L327 below is inside
+ * #ifdef USE_ENHANCED_EHASH; on this board the EHASH/external-hash code
+ * path is not exercised on the boot/cmm path because consumer fmc/fmlib
+ * does not emit external="yes" PCD directives. Replace the extern with
+ * a static inline no-op stub that always returns bucket index 0 — keeps
+ * the compile and link green without pulling in absent code, and is
+ * structurally unreachable in practice. If a future consumer enables
+ * external hashing, this will need a real CRC-shift index implementation.
+ */
+static inline void get_indexed_hash_bucket(uint8_t key_size, uint8_t *key_ptr,
+        uint8_t crc_shift, uint16_t mask, uint16_t *bucket_index)
+{
+    (void)key_size; (void)key_ptr; (void)crc_shift; (void)mask;
+    if (bucket_index) *bucket_index = 0;
+}
 
 void display_reassem_stats(uint32_t type);
 static void display_reassem_params(uint32_t type);
