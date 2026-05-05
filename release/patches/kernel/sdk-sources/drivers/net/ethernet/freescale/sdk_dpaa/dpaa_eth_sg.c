@@ -1482,50 +1482,59 @@ void print_ipsec_offload_pkt_count(void)
 EXPORT_SYMBOL(print_ipsec_offload_pkt_count);
 #endif
 
-#ifdef CONFIG_XFRM
-#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
+/* ASK-edit (ask26): hoist dpa_get_skb_nh() and its #defines out of the
+ * CONFIG_XFRM / CONFIG_INET_IPSEC_OFFLOAD gate. The helper is a generic
+ * L3-header parser (no IPSEC types in its body) and is called from
+ * cpe_fp_tx() under plain CONFIG_CPE_FAST_PATH. With
+ * CONFIG_INET_IPSEC_OFFLOAD=n (producer invariant on 6.6.y), keeping
+ * the def gated produced an implicit-declaration build error. The
+ * IPSEC-specific helpers (dpaa_submit_*_pkt_to_SEC,
+ * dpa_add_dummy_eth_hdr) remain gated below. */
 
 #define ETH_HDR_SIZE            14
 #define VLAN_HDR_SIZE           4
 #define PPPOE_HDR_SIZE          8
 #define ETHHDR_MACEND_OFFSET    12
 
-#define DPOVRD_ENABLE		0x80000000
+#define DPOVRD_ENABLE0x80000000
 
 unsigned char* dpa_get_skb_nh(struct sk_buff* skb, unsigned short *l3_proto, unsigned short* l3_offset)
 {
-	unsigned short type_id;
-	unsigned short offset = ETH_HDR_SIZE;
-	type_id = *((unsigned short*) (skb->data + offset - 2));
-	while (1)
-	{
-		switch (type_id)
-		{
-			case htons(ETH_P_PPP_SES):
-				offset += PPPOE_HDR_SIZE;
-				type_id = *(unsigned short*)(skb->data + offset - 2);
+unsigned short type_id;
+unsigned short offset = ETH_HDR_SIZE;
+type_id = *((unsigned short*) (skb->data + offset - 2));
+while (1)
+{
+switch (type_id)
+{
+case htons(ETH_P_PPP_SES):
+offset += PPPOE_HDR_SIZE;
+type_id = *(unsigned short*)(skb->data + offset - 2);
 
-				if (type_id == htons(PPP_IP))
-					type_id = ntohs(ETH_P_IP);
-				else if (type_id == htons(PPP_IPV6))
-					type_id = ntohs(ETH_P_IPV6);
-				break;
-			case htons(ETH_P_8021Q):
-				offset += VLAN_HDR_SIZE;
-				type_id = *(unsigned short*) (skb->data + offset - 2);
-				break;
-			case htons(ETH_P_IP):
-			case htons(ETH_P_IPV6):
-				*l3_proto = type_id;
-				*l3_offset = offset;
-				return (skb->data + offset);
-			default:
-				*l3_proto = type_id;
-				*l3_offset = offset;
-				return NULL;
-		}
-	}
+if (type_id == htons(PPP_IP))
+type_id = ntohs(ETH_P_IP);
+else if (type_id == htons(PPP_IPV6))
+type_id = ntohs(ETH_P_IPV6);
+break;
+case htons(ETH_P_8021Q):
+offset += VLAN_HDR_SIZE;
+type_id = *(unsigned short*) (skb->data + offset - 2);
+break;
+case htons(ETH_P_IP):
+case htons(ETH_P_IPV6):
+*l3_proto = type_id;
+*l3_offset = offset;
+return (skb->data + offset);
+default:
+*l3_proto = type_id;
+*l3_offset = offset;
+return NULL;
 }
+}
+}
+
+#ifdef CONFIG_XFRM
+#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
 
  __hot void dpaa_submit_outb_pkt_to_SEC(struct sk_buff *skb, struct net_device *net_dev, struct dpa_bp *dpa_bp)
 {

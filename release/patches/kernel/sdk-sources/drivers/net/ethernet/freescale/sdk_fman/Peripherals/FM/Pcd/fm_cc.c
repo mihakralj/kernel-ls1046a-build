@@ -7580,6 +7580,33 @@ t_Error FM_PCD_MatchTableGetIndexedHashBucket(t_Handle h_CcNode,
 
 t_Handle FM_PCD_HashTableSet(t_Handle h_FmPcd, t_FmPcdHashTableParams *p_Param)
 {
+    /* ASK-edit (ask26): NXP's port to lf-6.6.y dropped the local variable
+     * declaration block at the top of this function body, leaving 13
+     * identifiers undeclared (-Werror=implicit-declaration /
+     * undeclared-identifier) and forcing -Werror=return-type. Restored
+     * here from the matching prologue in FM_PCD_HashTableDelete() and
+     * the lf-6.12.y reference. Types inferred from later use sites:
+     * t_FmPcdCcNodeParams * for *CcNodeParam (XX_Malloc / MatchTableSet),
+     * t_FmPcdCcKeyParams * for *HashKeyParams (decay from
+     * keyParams[FM_PCD_MAX_NUM_OF_KEYS]), t_FmPcdCcNode * for both
+     * p_CcNode and p_CcNodeHashTbl, t_Handle for h_MissStatsCounters,
+     * t_Error for err, bool for statsEnForMiss (mirrors
+     * t_FmPcdCcNode::statsEnForMiss), int for i (signed because the
+     * cleanup loop "for (i = i - 1; i >= 0; i--)" is unsigned-unsafe),
+     * uint16_t for the count masks. */
+    t_FmPcdCcNodeParams     *p_ExactMatchCcNodeParam = NULL;
+    t_FmPcdCcNodeParams     *p_IndxHashCcNodeParam   = NULL;
+    t_FmPcdCcKeyParams      *p_HashKeyParams         = NULL;
+    t_FmPcdCcNode           *p_CcNode                = NULL;
+    t_FmPcdCcNode           *p_CcNodeHashTbl         = NULL;
+    t_Handle                 h_MissStatsCounters     = NULL;
+    t_Error                  err                     = E_OK;
+    uint16_t                 countMask               = 0;
+    uint16_t                 onesCount               = 0;
+    uint16_t                 numOfSets, numOfWays;
+    int                      i;
+    bool                     statsEnForMiss          = FALSE;
+
     SANITY_CHECK_RETURN_VALUE(h_FmPcd, E_INVALID_HANDLE, NULL);
     SANITY_CHECK_RETURN_VALUE(p_Param, E_NULL_POINTER, NULL);
 
@@ -7902,12 +7929,16 @@ t_Error FM_PCD_HashTableModifyMissMonitorAddr(
     SANITY_CHECK_RETURN_ERROR(h_HashTbl, E_INVALID_HANDLE);
     SANITY_CHECK_RETURN_ERROR(monitorAddr, E_NULL_POINTER);
 
-#if (DPAA_VERSION >= 11)
-    if (p_HashTbl->externalHash)
-        return ExternalHashTableModifyMissMonitorAddr(h_HashTbl, monitorAddr);
-    else
-#endif /* (DPAA_VERSION >= 11) */
-        return E_NOT_SUPPORTED;
+    /* ASK-edit (ask26): the lf-6.6.y SDK overlay does not define
+     * ExternalHashTableModifyMissMonitorAddr() (it lives only in the
+     * lf-6.12.y EHASH/DDR-offload helpers that NXP did not port back),
+     * leaving the original DPAA_VERSION>=11 branch as an undefined
+     * reference. The IOCTL entry that reaches this function
+     * (FM_IOC_PCD_HASH_TBL_MODIFY_MISS_MONITOR) is not exercised on
+     * the boot/cmm/dpa_app path; collapse the body to E_NOT_SUPPORTED
+     * which is also semantically correct on lf-6.6.y. */
+    (void)p_HashTbl;
+    return E_NOT_SUPPORTED;
 }
 
 t_Error FM_PCD_HashTableFindNGetKeyStatistics(
