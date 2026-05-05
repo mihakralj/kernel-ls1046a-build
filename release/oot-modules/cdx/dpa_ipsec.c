@@ -271,6 +271,20 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 
 	/* len = (dq->fd.length20 - 4); */
 	len = dq->fd.length20;
+	/* B5 P0.05: validate SEC FD status before delivering decrypted
+	 * frame to the host stack. SEC exception FQ is the path used
+	 * when CAAM rejects an ESP packet (decrypt error, ICV mismatch,
+	 * replay window). Previously dq->fd.status was only inspected
+	 * under #ifdef DPA_IPSEC_DEBUG1 and the frame was unconditionally
+	 * re-injected via netif_receive_skb(), so tampered ciphertext
+	 * failing ICV would be delivered to the stack as good.
+	 */
+	if (unlikely(dq->fd.status & FM_FD_STAT_RX_ERRORS)) {
+		ipsec_exception_pkt_cnt++;
+		DPAIPSEC_ERROR("%s::SEC RX error fd.status=0x%08x, dropping pkt\n",
+			__FUNCTION__, dq->fd.status);
+		goto rel_fd;
+	}
 	ptr = (uint8_t *)(phys_to_virt((uint64_t)dq->fd.addr) + dq->fd.offset);
 #ifdef DPA_IPSEC_DEBUG1
 	/* for debugging printing packet*/
