@@ -7602,6 +7602,30 @@ t_Error FM_PCD_MatchTableGetIndexedHashBucket(t_Handle h_CcNode,
 
 t_Handle FM_PCD_HashTableSet(t_Handle h_FmPcd, t_FmPcdHashTableParams *p_Param)
 {
+    /* ASK-edit (ask40): EHASH (DDR-backed) dispatch was missing from this
+     * function in NXP's ask-6.6-port even though USE_ENHANCED_EHASH=1 is
+     * defined in fm_pcd_ext.h:51 and the sister entry points
+     * (FM_PCD_HashTableAddKey, FM_PCD_HashTableModifyMissNextEngine) below
+     * already dispatch to the External* helpers under the same gate. Without
+     * this dispatch FM_PCD_HashTableSet always allocates the per-bucket CC
+     * node + AD/key tables from on-chip MURAM via MatchTableSet(), exhausting
+     * the 384 KiB MURAM after ~16 hashtables × N ports because shared="true"
+     * still instantiates separate per-port CC trees. Surfaces as
+     * fm_cc.c:4842 MatchTableSet "MURAM allocation for CC node action
+     * descriptors table" -> fm_cc.c:7773 FM_PCD_HashTableSet "Unexpected
+     * NULL Pointer" -> dpa_app's fmc_execute() returns failure ->
+     * cdx_module_init::start_dpa_app failed rc 11.
+     *
+     * Trigger: p_Param->externalHash (or any non-zero p_Param->table_type
+     * for non-reassembly tables) routes the request to ExternalHashTableSet
+     * in fm_ehash.c, which allocates buckets/AD/key tables in DDR via
+     * USDPAA dma_alloc_coherent rather than MURAM.
+     */
+#ifdef USE_ENHANCED_EHASH
+    if (p_Param && p_Param->externalHash)
+        return ExternalHashTableSet(h_FmPcd, p_Param);
+#endif /* USE_ENHANCED_EHASH */
+
     /* ASK-edit (ask26): NXP's port to lf-6.6.y dropped the local variable
      * declaration block at the top of this function body, leaving 13
      * identifiers undeclared (-Werror=implicit-declaration /
