@@ -902,9 +902,19 @@ t_Handle ExternalHashTableSet(t_Handle h_FmPcd, t_FmPcdHashTableParams *p_Param)
 		info->flags |= TIMESTAMP_EN;
 	if (p_Param->statisticsMode) 
 		info->flags |= STATS_EN;
-	//fill AD
-	node = &info->node;
-	memset(node, 0, sizeof(struct en_exthash_node));
+//fill AD
+node = &info->node;
+/* ASK-edit (ask41): point info->h_Ad at the embedded en_exthash_node so
+ * later operations (ExternalHashTableModifyMissNextEngine, the Enqueue
+ * params modifier, the dump prints) that dereference info->h_Ad don't
+ * NULL-deref. ExternalHashTableSet only ever writes to info->node;
+ * info->h_Ad is allocated nowhere in the lf-6.6.y source but read in
+ * many places. Without this assignment, cdx_ioc_set_dpa_params()'s
+ * call to FM_PCD_HashTableModifyMissNextEngine() oopses at
+ * ExternalHashTableModifyMissNextEngine+0x18 (ldr x3,[x0,#24] then
+ * ldr w0,[x3]) once the EHASH dispatch path is active (ask40). */
+info->h_Ad = &info->node;
+memset(node, 0, sizeof(struct en_exthash_node));
 	node->key_size = info->keysize;		
 	node->hash_bytes_offset = info->hashshift;	
 	/* convert the hash mask value to hash mask bits */
