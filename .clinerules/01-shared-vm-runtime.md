@@ -76,12 +76,12 @@ Enable: `systemctl enable --now idle-deallocate.timer`.
 
 Two `actions-runner` services run on the VM, each with its own work directory and unique name. GitHub schedules producer and consumer to *different* runners, so they execute in parallel on the shared cores.
 
-| Runner name | Repo it serves | Labels | `_work` dir |
-|---|---|---|---|
-| `vm-runner-1` | `lts_6.6_ls1046a` | `self-hosted, Linux, ARM64` (matches producer's `runs-on: self-hosted`) | `/opt/actions-runner-1/_work` |
-| `vm-runner-2` | `vyos-ls1046a-build` | `self-hosted, Linux, ARM64` (matches consumer's `runs-on: ARM64`) | `/opt/actions-runner-2/_work` |
+| Runner name | Repo it serves | Labels | Install dir | systemd unit |
+|---|---|---|---|---|
+| `lts-build-runner` | `lts_6.6_ls1046a` | `self-hosted, Linux, ARM64` (matches producer's `runs-on: self-hosted`) | `/home/vyos/actions-runner-lts/` | `actions.runner.mihakralj-lts_6.6_ls1046a.lts-build-runner.service` |
+| `arm64-runner` | `vyos-ls1046a-build` | `self-hosted, Linux, ARM64` (matches consumer's `runs-on: ARM64`) | `/home/vyos/actions-runner/` | `actions.runner.mihakralj-vyos-ls1046a-build.arm64-runner.service` |
 
-Both runners auto-register with their respective repos and run as systemd services (`actions.runner.<owner>-<repo>.<name>.service`).
+Both runners run as systemd services owned by user `vyos`. Their `_work` directories live inside their respective install dirs (`/home/vyos/actions-runner-lts/_work/`, `/home/vyos/actions-runner/_work/`) and are therefore already runner-namespaced.
 
 ### Build-script invariants under B
 
