@@ -186,19 +186,9 @@ jobs:
           fi
           ./scripts/publish-binaries.sh "${ARGS[@]}"
 
-  # ── STEP 3: Deallocate VM to stop billing ────────────────────────
-  stop-vm:
-    needs: build
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Azure Login
-        uses: azure/login@v3
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Deallocate VM
-        run: |
-          az vm deallocate \
-            --resource-group arm64-runner-group \
-            --name arm64-runner
+  # NOTE: VM deallocation is intentionally NOT a CI step. A systemd timer
+  # on the VM (idle-deallocate.service / idle-deallocate.timer) self-
+  # deallocates after 10 min of runner idleness. See
+  # .clinerules/01-shared-vm-runtime.md for the full A+B pattern. Adding a
+  # stop-vm step here would re-introduce the cross-workflow VM race that
+  # killed builds in production on 2026-05-06.
