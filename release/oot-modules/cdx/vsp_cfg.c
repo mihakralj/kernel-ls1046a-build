@@ -84,15 +84,29 @@ int dpa_add_virt_storage_profile(struct net_device *net_dev,
 
 	int			 _errno;
 
-	priv = netdev_priv(net_dev);
-	port = (t_LnxWrpFmPortDev *)priv->mac_dev->port_dev[RX];
-	if(!port->h_DfltVsp)
-	{
-		_errno = -EINVAL;
-		goto out;
-	}	
+priv = netdev_priv(net_dev);
+port = (t_LnxWrpFmPortDev *)priv->mac_dev->port_dev[RX];
 
-	memset(&fmVspParams, 0, sizeof(fmVspParams));
+/* ASK-fix (ask42, /root/lts_6.6_ls1046a/release/oot-modules/cdx/vsp_cfg.c):
+ * The original code bailed with -EINVAL when port->h_DfltVsp == NULL.
+ * h_DfltVsp is populated by lnxwrp_fm_port.c::CheckNSetFmPortAdvArgs() ONLY
+ * for FMan-internal RX ports whose DTS has an `fsl,fman-extended-args' node
+ * with a `vsp-window' property. On Mono Gateway DK the 1G RJ45 ports
+ * (eth2/3/4 / MAC2/MAC5/MAC6) do not have that DTS property, so h_DfltVsp
+ * stays NULL and ingress is dead-locked here -- the cdx never registers a
+ * VSP, so FMan dispatches no FDs to QMan, ingress bp_count never decrements,
+ * and tcpdump in promisc shows zero frames. The 10G SFP+ ports (eth0/1) do
+ * have vsp-window in DTS so they survive the gate.
+ *
+ * The body below builds a fresh VSP via FM_VSP_Config(relativeProfileId=1)
+ * using port->settings.param.{portType,portId}, port->h_LnxWrpFmDev, and
+ * port->buffPrefixContent -- all populated by ConfigureFmPortDev independent
+ * of vsp-window. The h_DfltVsp gate is therefore dead-defensive and the
+ * sole cause of the eth2/3/4 RX regression observed since ask25's SDK
+ * refresh. Removing the gate restores 1G RX without touching DTS or kernel.
+ */
+
+memset(&fmVspParams, 0, sizeof(fmVspParams));
 	p_LnxWrpFmDev = ((t_LnxWrpFmDev *)port->h_LnxWrpFmDev);
 	fmVspParams.h_Fm = p_LnxWrpFmDev->h_Dev;
 	fmVspParams.portParams.portType = port->settings.param.portType;
