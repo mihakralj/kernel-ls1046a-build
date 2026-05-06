@@ -6537,46 +6537,60 @@ t_Handle FM_PCD_CcRootBuild(t_Handle h_FmPcd,
                sizeof(t_FmPcdCcKeyAndNextEngineParams));
 	nexteng = &p_FmPcdCcTree->keyAndNextEngineParams[i].nextEngineParams;
 
-	if (nexteng->nextEngine == e_FM_PCD_CC)
-	{
-		
-        	t_FmPcdCcNextCcParams *ccParams;       /**< Parameters in case next engine is CC */
-		ccParams = &nexteng->params.ccParams;
-		//printk("e_FM_PCD_CC ccnode handle %p\n", (void *)ccParams->h_CcNode);
+if (nexteng->nextEngine == e_FM_PCD_CC)
+{
+
+        t_FmPcdCcNextCcParams *ccParams;       /**< Parameters in case next engine is CC */
+ccParams = &nexteng->params.ccParams;
+//printk("e_FM_PCD_CC ccnode handle %p\n", (void *)ccParams->h_CcNode);
+/* ASK-edit (ask39): gate copy_td_to_ccbase on externalHash. The
+ * function reinterprets ccParams->h_CcNode as struct en_exthash_info *,
+ * but FM_PCD_HashTableSet returns a t_FmPcdCcNode * for regular
+ * (non-EHASH) hash tables. The two struct layouts differ: regular
+ * t_FmPcdCcNode has its first fields as scalars/pointers, while
+ * en_exthash_info expects a node[] array at offset ~0 and a pcd
+ * pointer at ~0x18, producing a NULL-deref oops at +0x68 on first
+ * use when the consumer's cdx_pcd.xml uses no external="yes" hash
+ * tables (the unconditional path used to work only because callers
+ * happened to allocate EHASH nodes; lf-6.6.y consumer XML does not).
+ * Same gate applies to the post-loop set_reassembly_tds block at
+ * ~L6601 below (info->type cast). */
+if (((t_FmPcdCcNode *)ccParams->h_CcNode)->externalHash) {
 #ifdef EXCLUDE_FMAN_IPR_OFFLOAD
-		copy_td_to_ccbase(ccParams->h_CcNode, p_CcTreeTmp);
+copy_td_to_ccbase(ccParams->h_CcNode, p_CcTreeTmp);
 #else
-		{
-			uint32_t node;
-			uint32_t type;
-			type = copy_td_to_ccbase(ccParams->h_CcNode, p_CcTreeTmp, &node);
+{
+uint32_t node;
+uint32_t type;
+type = copy_td_to_ccbase(ccParams->h_CcNode, p_CcTreeTmp, &node);
 #ifdef FM_EHASH_DEBUG
-			printk("e_FM_PCD_CC ccnode handle %p type %d\n", (void *)ccParams->h_CcNode,
-				type);
+printk("e_FM_PCD_CC ccnode handle %p type %d\n", (void *)ccParams->h_CcNode,
+type);
 #endif
-			switch (type) {
-				case IPV4_REASSM_TABLE:
-					ipv4_reassly_offset = (node & 0xff);
+switch (type) {
+case IPV4_REASSM_TABLE:
+ipv4_reassly_offset = (node & 0xff);
 #ifdef FM_EHASH_DEBUG
-					printk("%s::ipv4_reassly_offset %x\n",
-						__FUNCTION__,
-						ipv4_reassly_offset);
+printk("%s::ipv4_reassly_offset %x\n",
+__FUNCTION__,
+ipv4_reassly_offset);
 #endif
-					break;
-				case IPV6_REASSM_TABLE:
-					ipv6_reassly_offset = (node & 0xff);
+break;
+case IPV6_REASSM_TABLE:
+ipv6_reassly_offset = (node & 0xff);
 #ifdef FM_EHASH_DEBUG
-					printk("%s::ipv6_reassly_offset %x\n",
-						__FUNCTION__,
-						ipv6_reassly_offset);
+printk("%s::ipv6_reassly_offset %x\n",
+__FUNCTION__,
+ipv6_reassly_offset);
 #endif
-					break;
-				default:
-					break;
-			}
-		}	
+break;
+default:
+break;
+}
+}
 #endif
-	}
+}
+}
         p_CcTreeTmp = PTR_MOVE(p_CcTreeTmp, FM_PCD_CC_AD_ENTRY_SIZE);
 #ifdef FM_EHASH_DEBUG
 	printk("%s::entry %d tree %p p_KeyAndNextEngineParams %p p_CcTreeTmp %p\n", __FUNCTION__, 
@@ -6593,25 +6607,33 @@ t_Handle FM_PCD_CcRootBuild(t_Handle h_FmPcd,
 #endif
     }
 
-#ifndef EXCLUDE_FMAN_IPR_OFFLOAD	
-	//set table indices for ipv4 and ipv6 reassly in other ADs
-	for (i = 0; i < numOfEntries; i++) {
-	struct t_FmPcdCcNextEngineParams *nexteng;
+#ifndef EXCLUDE_FMAN_IPR_OFFLOAD
+//set table indices for ipv4 and ipv6 reassly in other ADs
+for (i = 0; i < numOfEntries; i++) {
+struct t_FmPcdCcNextEngineParams *nexteng;
 
-	nexteng = &p_FmPcdCcTree->keyAndNextEngineParams[i].nextEngineParams;
-	if (nexteng->nextEngine == e_FM_PCD_CC) {
-        	t_FmPcdCcNextCcParams *ccParams;       
-		struct en_exthash_info *info;
-        	
-		ccParams = &nexteng->params.ccParams;
-		info = (struct en_exthash_info *)ccParams->h_CcNode;
-		if (info->type != ETHERNET_TABLE)
-			set_reassembly_tds(ccParams->h_CcNode, ipv4_reassly_offset,
-				ipv6_reassly_offset);
-		else
-			set_reassembly_tds(ccParams->h_CcNode, 0xff, 0xff);
-	}
-	}
+nexteng = &p_FmPcdCcTree->keyAndNextEngineParams[i].nextEngineParams;
+if (nexteng->nextEngine == e_FM_PCD_CC) {
+        t_FmPcdCcNextCcParams *ccParams;       
+struct en_exthash_info *info;
+        
+ccParams = &nexteng->params.ccParams;
+/* ASK-edit (ask39): gate the en_exthash_info cast + set_reassembly_tds
+ * on externalHash. Companion fix to the copy_td_to_ccbase gate at
+ * ~L6549 above. set_reassembly_tds writes IPv4/IPv6 reassembly offset
+ * indices into AD bytes that only exist for EHASH-typed nodes; for
+ * regular hash tables h_CcNode is a t_FmPcdCcNode * and reading
+ * info->type would be an OOB/NULL deref of the first scalar field. */
+if (!((t_FmPcdCcNode *)ccParams->h_CcNode)->externalHash)
+continue;
+info = (struct en_exthash_info *)ccParams->h_CcNode;
+if (info->type != ETHERNET_TABLE)
+set_reassembly_tds(ccParams->h_CcNode, ipv4_reassly_offset,
+ipv6_reassly_offset);
+else
+set_reassembly_tds(ccParams->h_CcNode, 0xff, 0xff);
+}
+}
 #endif
     for (i = 0; i < numOfEntries; i++)
     {
