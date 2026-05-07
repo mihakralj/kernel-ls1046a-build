@@ -12,3 +12,8 @@ dist/
 .idea/
 *.swp
 .DS_Store
+# Cline AI assistant local config (not for version control)
+.clinerules/
+.clinehooks/
+.clineskills/
+.clineworkflows/
