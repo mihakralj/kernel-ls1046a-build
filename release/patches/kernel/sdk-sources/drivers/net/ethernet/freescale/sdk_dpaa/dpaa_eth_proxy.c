@@ -40,6 +40,10 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
+/* ASK-edit (mainline-6.18-port): of_platform.h forward-declares
+ * struct device_node and struct platform_device only; pull in real defs. */
+#include <linux/of.h>
+#include <linux/platform_device.h>
 #include <linux/of_platform.h>
 #include "dpaa_eth.h"
 #include "dpaa_eth_common.h"
@@ -53,7 +57,9 @@ MODULE_LICENSE("Dual BSD/GPL");
 
 MODULE_DESCRIPTION(DPA_DESCRIPTION);
 
-static int __cold dpa_eth_proxy_remove(struct platform_device *of_dev);
+/* ASK-edit (mainline-6.18-port): platform_driver.remove returns void in 6.18
+ * (upstream 0edb555a65d1). */
+static void __cold dpa_eth_proxy_remove(struct platform_device *of_dev);
 #ifdef CONFIG_PM
 
 static int proxy_suspend(struct device *dev)
@@ -316,7 +322,7 @@ int dpa_proxy_stop(struct proxy_device *proxy_dev, struct net_device *net_dev)
 }
 EXPORT_SYMBOL(dpa_proxy_stop);
 
-static int __cold dpa_eth_proxy_remove(struct platform_device *of_dev)
+static void __cold dpa_eth_proxy_remove(struct platform_device *of_dev)
 {
 	struct device *dev = &of_dev->dev;
 	struct proxy_device *proxy_dev = dev_get_drvdata(dev);
@@ -324,8 +330,6 @@ static int __cold dpa_eth_proxy_remove(struct platform_device *of_dev)
 	kfree(proxy_dev);
 
 	dev_set_drvdata(dev, NULL);
-
-	return 0;
 }
 
 static const struct of_device_id dpa_proxy_match[] = {

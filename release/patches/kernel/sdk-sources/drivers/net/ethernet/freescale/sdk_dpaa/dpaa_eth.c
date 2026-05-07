@@ -41,6 +41,9 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
+/* ASK-edit (ask42, mainline-6.18-port): explicit platform_device.h —
+ * of_mdio.h/of_net.h no longer pull it in transitively. */
+#include <linux/platform_device.h>
 #include <linux/of_mdio.h>
 #include <linux/of_net.h>
 #include <linux/kthread.h>
@@ -782,7 +785,10 @@ static int dpa_private_netdev_init(struct net_device *net_dev)
 	net_dev->max_mtu = dpa_get_max_mtu();
 
 	net_dev->hw_features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
-				NETIF_F_RXCSUM | NETIF_F_LLTX;
+				NETIF_F_RXCSUM;
+	/* ASK-edit (ask42, mainline-6.18-port): NETIF_F_LLTX retired in 6.10
+	 * (commit b5e6dcb1496); set the per-netdev `lltx` flag instead. */
+	net_dev->lltx = true;
 
 	/* Advertise S/G and HIGHDMA support for private interfaces */
 	net_dev->hw_features |= NETIF_F_SG | NETIF_F_HIGHDMA;

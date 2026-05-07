@@ -85,7 +85,10 @@ DECLARE_EVENT_CLASS(dpaa_eth_fd,
 		__entry->fd_offset = dpa_fd_offset(fd);
 		__entry->fd_length = dpa_fd_length(fd);
 		__entry->fd_status = fd->status;
-		__assign_str(name, netdev->name);
+		/* ASK-edit (ask42, mainline-6.18-port): __assign_str() became
+		 * single-argument in mainline 6.10 (commit 2c92ca849f). The
+		 * source string is now read from the matching __string() entry. */
+		__assign_str(name);
 	),
 
 	/* This is what gets printed when the trace event is triggered */

@@ -50,6 +50,11 @@
 #include <linux/io.h>
 #include <linux/ioport.h>
 #include <linux/of_platform.h>
+/* ASK-edit (ask42, mainline-6.18-port): need <linux/of.h> for
+ * for_each_matching_node(); of_platform.h does not pull it in. */
+#include <linux/of.h>
+/* ASK-edit (ask42, mainline-6.18-port): explicit platform_device.h. */
+#include <linux/platform_device.h>
 #include <linux/uaccess.h>
 #include <asm/errno.h>
 #ifndef CONFIG_FMAN_ARM

@@ -587,10 +587,12 @@ static struct attribute_group bman_dev_pool_countent_grp = {
 	.name = "pool_count",
 };
 
-static int of_fsl_bman_remove(struct platform_device *ofdev)
+/* ASK-edit (ask1, mainline-6.18-port): platform_driver::remove changed from
+ * int(*)(struct platform_device *) to void(*)(struct platform_device *)
+ * (commit 0edb555a65d1, 6.11+). Drop the return-value branch, return void. */
+static void of_fsl_bman_remove(struct platform_device *ofdev)
 {
 	sysfs_remove_group(&ofdev->dev.kobj, &bman_dev_attr_grp);
-	return 0;
 };
 
 static int of_fsl_bman_probe(struct platform_device *ofdev)

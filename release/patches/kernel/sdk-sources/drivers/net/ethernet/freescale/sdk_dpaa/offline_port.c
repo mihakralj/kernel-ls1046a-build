@@ -45,6 +45,11 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
+/* ASK-edit (mainline-6.18-port): of_platform.h forward-declares
+ * struct device_node and struct platform_device only; pull in real defs. */
+#include <linux/of.h>
+#include <linux/of_device.h>		/* of_match_device */
+#include <linux/platform_device.h>
 #include <linux/of_platform.h>
 #include <linux/fsl_qman.h>
 #include <linux/fsl_oh_port.h>
@@ -819,9 +824,11 @@ return_kfree:
 	return _errno;
 }
 
-static int __cold oh_port_remove(struct platform_device *_of_dev)
+/* ASK-edit (mainline-6.18-port): platform_driver.remove returns void in 6.18
+ * (upstream 0edb555a65d1). Drop trailing _errno propagation. */
+static void __cold oh_port_remove(struct platform_device *_of_dev)
 {
-	int _errno = 0, i;
+	int i;
 	struct dpa_oh_config_s *oh_config;
 
 	pr_info("Removing OH port...\n");
@@ -831,8 +838,7 @@ static int __cold oh_port_remove(struct platform_device *_of_dev)
 		pr_err(KBUILD_MODNAME
 			": %s:%hu:%s(): No OH config in device private data!\n",
 			KBUILD_BASENAME".c", __LINE__, __func__);
-		_errno = -ENODEV;
-		goto return_error;
+		return;
 	}
 
 	if (oh_config->egress_fqs)
@@ -843,20 +849,16 @@ static int __cold oh_port_remove(struct platform_device *_of_dev)
 		pr_err(KBUILD_MODNAME
 			": %s:%hu:%s(): No fm port in device private data!\n",
 			KBUILD_BASENAME".c", __LINE__, __func__);
-		_errno = -EINVAL;
 		goto free_egress_fqs;
 	}
 
-	_errno = fm_port_disable(oh_config->oh_port);
+	(void)fm_port_disable(oh_config->oh_port);
 
 free_egress_fqs:
 	if (oh_config->egress_fqs)
 		devm_kfree(&_of_dev->dev, oh_config->egress_fqs);
 	devm_kfree(&_of_dev->dev, oh_config);
 	dev_set_drvdata(&_of_dev->dev, NULL);
-
-return_error:
-	return _errno;
 }
 
 static struct platform_driver oh_port_driver = {

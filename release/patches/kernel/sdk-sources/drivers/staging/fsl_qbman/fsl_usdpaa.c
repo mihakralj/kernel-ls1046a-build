@@ -1920,7 +1920,9 @@ static void phy_link_updates(struct net_device *net_dev)
 	list_for_each(position, &eventfd_head) {
 		ev_mem = list_entry(position, struct eventfd_list, d_list);
 		if (ev_mem->ndev == net_dev) {
-			eventfd_signal(ev_mem->efd_ctx, 1);
+			/* ASK-edit (ask1, mainline-6.18-port): eventfd_signal() lost its
+			 * 'n' argument in 6.8 (commit 3a56e241ca64); always signals 1. */
+			eventfd_signal(ev_mem->efd_ctx);
 			pr_debug("%s: Link '%s': Speed '%d-Mbps': Autoneg '%d': Duplex '%d'\n",
 				net_dev->name,
 				netif_carrier_ok(net_dev) ? "UP" : "DOWN",
@@ -1943,7 +1945,11 @@ static int setup_eventfd(struct task_struct *userspace_task,
 	struct eventfd_list *ev_mem;
 
 	rcu_read_lock();
-	efd_file = files_lookup_fd_rcu(userspace_task->files, args->efd);
+	/* ASK-edit (ask1, mainline-6.18-port): files_lookup_fd_rcu() removed in
+	 * 6.7 (commit f3f08d7a18ab); files_lookup_fd_raw() is the equivalent and
+	 * its use is required to be inside an rcu_read_lock() section, which we
+	 * already hold. */
+	efd_file = files_lookup_fd_raw(userspace_task->files, args->efd);
 	rcu_read_unlock();
 
 	/* check if device is already registered */

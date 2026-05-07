@@ -41,6 +41,10 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/io.h>
+/* ASK-edit (mainline-6.18-port): of_platform.h forward-declares
+ * struct device_node and struct platform_device only; pull in real defs. */
+#include <linux/of.h>
+#include <linux/platform_device.h>
 #include <linux/of_platform.h>
 #include <linux/of_net.h>
 #include <linux/etherdevice.h>

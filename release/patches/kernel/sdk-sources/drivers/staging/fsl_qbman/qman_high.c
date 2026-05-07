@@ -157,7 +157,11 @@ struct qman_portal {
 	/* power management data */
 	u32 save_isdr;
 #ifdef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
-	struct net_device dummy_dev;
+	/* ASK-edit (ask1, mainline-6.18-port): init_dummy_netdev() removed in 6.16
+	 * (commit b48b89f9c189). Replacement is alloc_netdev_dummy() which returns
+	 * a heap-allocated netdev pointer; switch the embedded struct to a pointer
+	 * and free with free_netdev() in qman_destroy_portal(). */
+	struct net_device *dummy_dev;
 	struct napi_struct napi;
 #endif
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -771,7 +775,10 @@ struct qman_portal *qman_create_portal(
 		goto fail_devregister;
 	}
 
-	arch_setup_dma_ops(&portal->pdev->dev, 0, 0, NULL, true);
+	/* ASK-edit (ask1, mainline-6.18-port): arch_setup_dma_ops() simplified to
+	 * (struct device *, bool coherent) in 6.18 (commit 64a1b95bb2ca). The dma
+	 * base/size and iommu ops args are gone — DT/IOMMU is consulted directly. */
+	arch_setup_dma_ops(&portal->pdev->dev, true);
 
 	portal->pdev->dev.pm_domain = &qman_portal_device_pm_domain;
 	portal->pdev->dev.platform_data = portal;
@@ -824,8 +831,14 @@ struct qman_portal *qman_create_portal(
 	}
 #ifdef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
 	/* Initilize NAPI for Rx processing */
-	init_dummy_netdev(&portal->dummy_dev);
-	netif_napi_add(&portal->dummy_dev, &portal->napi, qman_portal_dqrr_poll);
+	/* ASK-edit (ask1, mainline-6.18-port): init_dummy_netdev() removed; use
+	 * alloc_netdev_dummy() and free in qman_destroy_portal(). */
+	portal->dummy_dev = alloc_netdev_dummy(0);
+	if (!portal->dummy_dev) {
+		pr_err("alloc_netdev_dummy() failed\n");
+		goto fail_affinity;
+	}
+	netif_napi_add(portal->dummy_dev, &portal->napi, qman_portal_dqrr_poll);
 	napi_enable(&portal->napi);
 #endif
 	/* Success */
@@ -926,6 +939,10 @@ void qman_destroy_portal(struct qman_portal *qm)
 #ifdef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
 	napi_disable(&qm->napi);
 	netif_napi_del(&qm->napi);
+	/* ASK-edit (ask1, mainline-6.18-port): paired with alloc_netdev_dummy()
+	 * in qman_create_affine_portal(). */
+	if (qm->dummy_dev)
+		free_netdev(qm->dummy_dev);
 #endif
 
 	/* Stop dequeues on the portal */

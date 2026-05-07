@@ -42,6 +42,8 @@
 #include <linux/module.h>
 #include <linux/of_platform.h>
 #include <linux/of_address.h>
+/* ASK-edit (ask42, mainline-6.18-port): explicit platform_device.h. */
+#include <linux/platform_device.h>
 #include <linux/cdev.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -1417,7 +1419,9 @@ static int /*__devinit*/ fm_port_probe(struct platform_device *of_dev)
 	return 0;
 }
 
-static int fm_port_remove(struct platform_device *of_dev)
+/* ASK-edit (mainline-6.18-port): platform_driver.remove now returns void
+ * (upstream 0edb555a65d1). */
+static void fm_port_remove(struct platform_device *of_dev)
 {
 	t_LnxWrpFmPortDev *p_LnxWrpFmPortDev;
 	t_LnxWrpFmDev *p_LnxWrpFmDev;
@@ -1435,8 +1439,6 @@ static int fm_port_remove(struct platform_device *of_dev)
 	FreeFmPortDev(p_LnxWrpFmPortDev);
 
 	dev_set_drvdata(dev, NULL);
-
-	return 0;
 }
 
 static const struct of_device_id fm_port_match[] = {

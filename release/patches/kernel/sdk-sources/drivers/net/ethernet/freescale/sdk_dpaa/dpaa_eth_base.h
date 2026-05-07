@@ -34,7 +34,10 @@
 
 #include <linux/etherdevice.h> /* struct net_device */
 #include <linux/fsl_bman.h> /* struct bm_buffer */
-#include <linux/of_platform.h> /* struct platform_device */
+/* ASK-edit (mainline-6.18-port): of_platform.h is forward-decl only in 6.18. */
+#include <linux/of.h>
+#include <linux/platform_device.h>
+#include <linux/of_platform.h>
 #include <linux/net_tstamp.h>	/* struct hwtstamp_config */
 
 extern uint8_t advanced_debug;

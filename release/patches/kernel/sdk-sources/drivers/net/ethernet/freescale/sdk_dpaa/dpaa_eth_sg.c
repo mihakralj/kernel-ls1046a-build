@@ -1402,10 +1402,15 @@ int __hot skb_to_sg_fd(struct dpa_priv_s *priv,
 
 	/* populate the rest of SGT entries */
 	for (i = 1; i <= nr_frags; i++) {
+		unsigned int frag_size; /* ASK-edit (mainline-6.18-port): bv_len/bv_offset
+					 * removed from skb_frag_t in 6.16+; must go
+					 * through skb_frag_size()/skb_frag_off()
+					 * accessors. */
 		frag = &skb_shinfo(skb)->frags[i - 1];
+		frag_size = skb_frag_size(frag);
 		qm_sg_entry_set_bpid(&sgt[i], 0xff);
 		qm_sg_entry_set_offset(&sgt[i], 0);
-		qm_sg_entry_set_len(&sgt[i], frag->bv_len);
+		qm_sg_entry_set_len(&sgt[i], frag_size);
 		qm_sg_entry_set_ext(&sgt[i], 0);
 
 		if (i == nr_frags)
@@ -1414,7 +1419,7 @@ int __hot skb_to_sg_fd(struct dpa_priv_s *priv,
 			qm_sg_entry_set_final(&sgt[i], 0);
 
 		DPA_BUG_ON(!skb_frag_page(frag));
-		addr = skb_frag_dma_map(dpa_bp->dev, frag, 0, frag->bv_len,
+		addr = skb_frag_dma_map(dpa_bp->dev, frag, 0, frag_size,
 					dma_dir);
 		if (unlikely(dma_mapping_error(dpa_bp->dev, addr))) {
 			dev_err(dpa_bp->dev, "DMA mapping failed");

@@ -49,6 +49,12 @@
 #include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
+/* ASK-edit (ask42, mainline-6.18-port): of_match_device() lives in
+ * <linux/of_device.h>; not pulled in transitively any more. */
+#include <linux/of_device.h>
+/* ASK-edit (ask42, mainline-6.18-port): of_platform.h only forward-declares
+ * struct platform_device in 6.18; pull in the real definition explicitly. */
+#include <linux/platform_device.h>
 #include <linux/of_net.h>
 #include <linux/of_mdio.h>
 #include <linux/phy_fixed.h>
@@ -420,9 +426,15 @@ _return:
 	return _errno;
 }
 
-static int __cold mac_remove(struct platform_device *of_dev)
+/* ASK-edit (mainline-6.18-port): platform_driver.remove signature changed
+ * from int(*)(struct platform_device *) to void(*)(struct platform_device *)
+ * upstream commit 0edb555a65d1 ("platform: Make platform_driver::remove()
+ * return void"). Discard the previously-propagated error code; the bus
+ * core ignores it on all callers post-6.18.
+ */
+static void __cold mac_remove(struct platform_device *of_dev)
 {
-	int			 i, _errno;
+	int			 i;
 	struct device		*dev;
 	struct mac_device	*mac_dev;
 
@@ -434,9 +446,7 @@ static int __cold mac_remove(struct platform_device *of_dev)
 
 	fm_unbind(mac_dev->fm_dev);
 
-	_errno = free_macdev(mac_dev);
-
-	return _errno;
+	(void)free_macdev(mac_dev);
 }
 
 static struct platform_driver mac_driver = {

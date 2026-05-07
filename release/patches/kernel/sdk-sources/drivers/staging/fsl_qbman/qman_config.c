@@ -1177,10 +1177,12 @@ static const struct attribute_group qman_dev_ecr_grp = {
 	.attrs = qman_dev_ecr_attributes
 };
 
-static int of_fsl_qman_remove(struct platform_device *ofdev)
+/* ASK-edit (ask1, mainline-6.18-port): platform_driver::remove changed from
+ * int(*)(struct platform_device *) to void(*)(struct platform_device *)
+ * (commit 0edb555a65d1, 6.11+). Drop the return-value branch, return void. */
+static void of_fsl_qman_remove(struct platform_device *ofdev)
 {
 	sysfs_remove_group(&ofdev->dev.kobj, &qman_dev_attr_grp);
-	return 0;
 };
 
 static int of_fsl_qman_probe(struct platform_device *ofdev)

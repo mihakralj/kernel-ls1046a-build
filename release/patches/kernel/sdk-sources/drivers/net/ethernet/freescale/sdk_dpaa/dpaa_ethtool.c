@@ -46,6 +46,11 @@
 
 #include <linux/string.h>
 #include <linux/of_platform.h>
+/* ASK-edit (ask42, mainline-6.18-port): of_platform.h no longer pulls in
+ * <linux/of.h>; need it for of_get_parent()/of_parse_phandle(). */
+#include <linux/of.h>
+/* ASK-edit (ask42, mainline-6.18-port): explicit platform_device.h. */
+#include <linux/platform_device.h>
 #include <linux/net_tstamp.h>
 #include <linux/fsl/ptp_qoriq.h>
 
@@ -322,7 +327,9 @@ static int dpa_set_wol(struct net_device *net_dev, struct ethtool_wolinfo *wol)
 }
 #endif
 
-static int dpa_get_eee(struct net_device *net_dev, struct ethtool_eee *et_eee)
+/* ASK-edit (ask42, mainline-6.18-port): ethtool_eee → ethtool_keee in 6.9
+ * (commit ae6df56848b). phy_ethtool_get/set_eee() now take ethtool_keee. */
+static int dpa_get_eee(struct net_device *net_dev, struct ethtool_keee *et_eee)
 {
 	struct dpa_priv_s *priv;
 
@@ -340,7 +347,7 @@ static int dpa_get_eee(struct net_device *net_dev, struct ethtool_eee *et_eee)
 	return phy_ethtool_get_eee(priv->mac_dev->phy_dev, et_eee);
 }
 
-static int dpa_set_eee(struct net_device *net_dev, struct ethtool_eee *et_eee)
+static int dpa_set_eee(struct net_device *net_dev, struct ethtool_keee *et_eee)
 {
 	struct dpa_priv_s *priv;
 
@@ -511,8 +518,10 @@ static void dpa_get_strings(struct net_device *net_dev, u32 stringset, u8 *data)
 	memcpy(strings, dpa_stats_global, size);
 }
 
+/* ASK-edit (ask42, mainline-6.18-port): ethtool_ts_info →
+ * kernel_ethtool_ts_info in 6.10 (commit 087618e2531). */
 static int dpaa_get_ts_info(struct net_device *net_dev,
-			    struct ethtool_ts_info *info)
+			    struct kernel_ethtool_ts_info *info)
 {
 	struct dpa_priv_s *priv = netdev_priv(net_dev);
 	struct device *dev = priv->mac_dev->dev;

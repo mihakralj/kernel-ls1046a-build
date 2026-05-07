@@ -38,6 +38,10 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/of_platform.h>
+#include <linux/platform_device.h>	/* ASK-edit (mainline-6.18-port): of_platform.h
+						 * stopped including platform_device.h
+						 * upstream; struct platform_device is
+						 * now an opaque forward decl. */
 #include <linux/of_net.h>
 #include <linux/etherdevice.h>
 #include <linux/kthread.h>
@@ -479,9 +483,11 @@ int dpa_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 }
 EXPORT_SYMBOL(dpa_ioctl);
 
-int __cold dpa_remove(struct platform_device *of_dev)
+/* ASK-edit (mainline-6.18-port): platform_driver.remove returns void in
+ * 6.18 (upstream 0edb555a65d1). dpa_fq_free()'s return code was
+ * propagated to the bus core; it is now silently dropped. */
+void __cold dpa_remove(struct platform_device *of_dev)
 {
-	int			err;
 	struct device		*dev;
 	struct net_device	*net_dev;
 	struct dpa_priv_s	*priv;
@@ -496,7 +502,7 @@ int __cold dpa_remove(struct platform_device *of_dev)
 	dev_set_drvdata(dev, NULL);
 	unregister_netdev(net_dev);
 
-	err = dpa_fq_free(dev, &priv->dpa_fq_list);
+	(void)dpa_fq_free(dev, &priv->dpa_fq_list);
 
 	qman_delete_cgr_safe(&priv->ingress_cgr);
 	qman_release_cgrid(priv->ingress_cgr.cgrid);
@@ -521,8 +527,6 @@ int __cold dpa_remove(struct platform_device *of_dev)
 #endif
 
 	free_netdev(net_dev);
-
-	return err;
 }
 EXPORT_SYMBOL(dpa_remove);
 

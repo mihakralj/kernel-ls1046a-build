@@ -51,6 +51,8 @@
 #include <linux/of_platform.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
+/* ASK-edit (ask42, mainline-6.18-port): explicit platform_device.h. */
+#include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <asm/uaccess.h>
 #include <asm/errno.h>
@@ -1317,7 +1319,9 @@ static int /*__devinit*/ fm_probe(struct platform_device *of_dev)
     return 0;
 }
 
-static int fm_remove(struct platform_device *of_dev)
+/* ASK-edit (mainline-6.18-port): platform_driver.remove now returns void
+ * (upstream 0edb555a65d1). */
+static void fm_remove(struct platform_device *of_dev)
 {
     t_LnxWrpFmDev   *p_LnxWrpFmDev;
     struct device   *dev;
@@ -1340,8 +1344,6 @@ static int fm_remove(struct platform_device *of_dev)
     DestroyFmDev(p_LnxWrpFmDev);
 
     dev_set_drvdata(dev, NULL);
-
-    return 0;
 }
 
 static const struct of_device_id fm_match[] = {
