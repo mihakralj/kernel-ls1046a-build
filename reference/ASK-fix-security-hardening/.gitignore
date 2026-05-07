@@ -1,0 +1,56 @@
+# Autotools generated files
+autom4te.cache/
+Makefile.in
+aclocal.m4
+config.guess
+config.sub
+configure
+depcomp
+install-sh
+ltmain.sh
+missing
+compile
+INSTALL
+COPYING
+
+# Configure output
+config.log
+config.status
+config.h
+stamp-h1
+libtool
+
+# Backup files
+*~
+
+# Build artifacts
+*.o
+*.lo
+*.la
+*.a
+*.so
+*.so.*
+*.ko
+*.mod
+*.mod.c
+.libs/
+.deps/
+dist/
+
+# Built binaries
+cmm/src/cmm
+cmm/src/cmm_rtnl_fuzzer
+dpa_app/dpa_app
+
+# Kbuild temporaries
+.*.cmd
+Module.symvers
+modules.order
+
+# Fetched sources (reproduced by make)
+sources/
+
+# Editor files
+*.swp
+*.swo
+*~

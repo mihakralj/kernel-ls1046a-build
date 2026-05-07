@@ -1,0 +1,48 @@
+From a3ebb453f4a8c95fe3674d09646edb93946d450a Mon Sep 17 00:00:00 2001
+From: Christian Breunig <christian@breunig.cc>
+Date: Sat, 15 Feb 2025 09:17:10 +0100
+Subject: [PATCH] ixgbe: always enable support for unsupported SFP+ modules
+
+---
+ src/ixgbe_param.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/src/ixgbe_param.c b/src/ixgbe_param.c
+index bba03ae..3f29492 100644
+--- a/src/ixgbe_param.c
++++ b/src/ixgbe_param.c
+@@ -307,7 +307,7 @@ IXGBE_PARAM(LRO, "Large Receive Offload (0,1), default 0 = off");
+  * Default Value: 0
+  */
+ IXGBE_PARAM(allow_unsupported_sfp, "Allow unsupported and untested "
+-	    "SFP+ modules on 82599 based adapters, default 0 = Disable");
++	    "SFP+ modules on 82599 based adapters, default 1 = Enable");
+ 
+ /* Enable/disable support for DMA coalescing
+  *
+@@ -1135,8 +1135,8 @@ void ixgbe_check_options(struct ixgbe_adapter *adapter)
+ 	struct ixgbe_option opt = {
+ 			.type = enable_option,
+ 			.name = "allow_unsupported_sfp",
+-			.err  = "defaulting to Disabled",
+-			.def  = OPTION_DISABLED
++			.err  = "defaulting to Enabled",
++			.def  = OPTION_ENABLED
+ 		};
+ #ifdef module_param_array
+ 		if (num_allow_unsupported_sfp > bd) {
+@@ -1152,7 +1152,11 @@ void ixgbe_check_options(struct ixgbe_adapter *adapter)
+ 			}
+ #ifdef module_param_array
+ 		} else {
++			if (opt.def == OPTION_ENABLED) {
++				adapter->hw.allow_unsupported_sfp = true;
++			} else {
+ 				adapter->hw.allow_unsupported_sfp = false;
++			}
+ 		}
+ #endif
+ 	}
+-- 
+2.39.5
+

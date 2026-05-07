@@ -1,0 +1,55 @@
+header:
+  version: 11
+
+machine: ask-ls1046a
+distro: ask
+
+repos:
+  bitbake:
+    url: https://git.openembedded.org/bitbake
+    branch: "2.12"
+    path: sources/bitbake
+    layers:
+      .: "disabled"
+
+  openembedded-core:
+    url: https://git.openembedded.org/openembedded-core
+    branch: walnascar
+    path: sources/openembedded-core
+    layers:
+      meta:
+
+  meta-openembedded:
+    url: https://git.openembedded.org/meta-openembedded
+    branch: walnascar
+    path: sources/meta-openembedded
+    layers:
+      meta-oe:
+      meta-python:
+      meta-networking:
+
+  meta-ask:
+    path: ..
+
+target:
+  - ask-image
+
+# Whitelist env vars kas passes through to bitbake. BitBake imports
+# env *before* parsing local.conf, so a `BB_ENV_PASSTHROUGH_ADDITIONS`
+# set inside local_conf_header is too late — by then env-import has
+# already happened with the default whitelist and KASAN has been
+# dropped (defaulting to KASAN ??= "0" in linux-ask_6.12.bb). Listing
+# it in kas's `env:` block makes kas inject it into the bitbake env
+# *and* add it to BB_ENV_PASSTHROUGH_ADDITIONS before bitbake starts.
+# Default value "" so unset → recipe sees "" → falsy → image stays
+# non-instrumented; `KASAN=1 kas build .config.yaml` flips it on.
+env:
+  KASAN: ""
+
+local_conf_header:
+  site: |
+    require ${TOPDIR}/../site.conf
+  spdx: |
+    # This is a dev/test image — skip SBOM generation to avoid SPDX
+    # task failures on externalsrc recipes and shave build time.
+    INHERIT:remove = "create-spdx"

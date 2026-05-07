@@ -1,0 +1,242 @@
+"""HTTP client for askd-agent. Thin wrapper over aiohttp."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+import aiohttp
+
+
+# Canonical filter for "leaks originating from ASK-maintained code".
+# Pass as `filter_substrs=ASK_KMEMLEAK_FILTER` when calling Agent.kmemleak().
+#
+# Two signal classes combined:
+#
+#   1. Module-name annotations. kmemleak writes backtrace frames via %pS,
+#      which for symbols in loadable modules appends "[modname]". All our
+#      three out-of-tree kmods show up as [cdx], [fci], [auto_bridge] in
+#      any frame that sits in that module — regardless of what the
+#      function is called. This is the strongest signal: a frame either
+#      is in a given .ko or it isn't.
+#
+#   2. Function-name prefixes. Backup signal for cases where module
+#      annotation might be stripped (e.g. certain aggressive link-time
+#      optimisations or symbol-table truncation). cdx/fci/auto_bridge
+#      consistently prefix their exported + file-scope functions with
+#      cdx_/fci_/abm_ respectively. Redundant with (1) on a healthy
+#      kallsyms setup; cheap insurance when it isn't.
+#
+# Built-in kernel code (including NXP's sdk_dpaa / sdk_fman / fsl_qbman,
+# which link into vmlinux in our config) shows no bracket annotation, so
+# (1) automatically excludes those. That's why DPAA's ~16k baseline
+# false-positives don't trip this filter even though some of their
+# symbol names happen to contain "dpa_" — those frames lack [cdx] and
+# their names start with "dpa_" / "dpaa_" / "qman_" / "bman_" / "fm_",
+# none of which appear in the needles below.
+ASK_KMEMLEAK_FILTER = [
+    "[cdx]", "[fci]", "[auto_bridge]",
+    "cdx_", "fci_", "abm_",
+]
+
+
+@dataclass
+class Agent:
+    name: str           # human label, e.g. "target", "lan", "wan"
+    base_url: str       # e.g. "http://10.0.0.62:9110"
+
+    async def health(self, session: aiohttp.ClientSession) -> dict:
+        async with session.get(f"{self.base_url}/health", timeout=aiohttp.ClientTimeout(total=5)) as r:
+            r.raise_for_status()
+            return await r.json()
+
+    async def counters(self, session: aiohttp.ClientSession, ifaces: list[str] | None = None) -> dict:
+        params = [("iface", i) for i in (ifaces or [])]
+        async with session.get(f"{self.base_url}/counters", params=params) as r:
+            r.raise_for_status()
+            return await r.json()
+
+    async def capture_start(self, session: aiohttp.ClientSession, ifaces: list[str] | None = None) -> str:
+        body = {"ifaces": ifaces or []}
+        async with session.post(f"{self.base_url}/capture-start", json=body) as r:
+            r.raise_for_status()
+            return (await r.json())["capture_id"]
+
+    async def capture_stop(self, session: aiohttp.ClientSession, cap_id: str) -> dict:
+        async with session.post(f"{self.base_url}/capture-stop/{cap_id}") as r:
+            r.raise_for_status()
+            return await r.json()
+
+    async def kmemleak(
+        self,
+        session: aiohttp.ClientSession,
+        filter_substrs: list[str] | None = None,
+    ) -> dict:
+        params = []
+        if filter_substrs:
+            params.append(("filter", ",".join(filter_substrs)))
+        # If no filter: return everything. For "ASK-code only" callers,
+        # pass ASK_KMEMLEAK_FILTER (defined at module top).
+        # Timeout budget: the agent writes "scan" to /sys/kernel/debug/
+        # kmemleak, waits for the scanner (which on a first-boot image
+        # with DPAA's ~16k baseline objects + the test storm's footprint
+        # can take 30-60s to complete a full heap walk), then reads +
+        # serialises the report. 120s covers the worst-case first scan
+        # on our DUT; steady-state subsequent scans are much faster.
+        async with session.get(
+            f"{self.base_url}/kmemleak-scan",
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=120),
+        ) as r:
+            return await r.json()
+
+    async def kmemleak_clear(self, session: aiohttp.ClientSession) -> dict:
+        # Clear now internally does `scan` + `clear` on the agent side so
+        # unclassified boot-time baseline objects don't slip past the
+        # cursor. The `scan` write is synchronous in the kernel and on a
+        # first-boot image walking ~16k DPAA baseline objects it can run
+        # 30-60s. Match the scan-timeout budget for consistency.
+        async with session.post(
+            f"{self.base_url}/kmemleak-clear",
+            timeout=aiohttp.ClientTimeout(total=120),
+        ) as r:
+            r.raise_for_status()
+            return await r.json()
+
+    async def cmm_query(self, session: aiohttp.ClientSession, table: str = "connections") -> dict:
+        async with session.post(f"{self.base_url}/cmm/query", json={"table": table}) as r:
+            r.raise_for_status()
+            return await r.json()
+
+    async def fci_send(
+        self,
+        session: aiohttp.ClientSession,
+        fcode: int,
+        length: int,
+        payload: bytes = b"",
+        timeout_ms: int = 500,
+        nlmsg_len_override: int | None = None,
+        failslab_times: int | None = None,
+    ) -> dict:
+        """Send an FCI command and return the parsed reply. When
+        `failslab_times=N` is set, the agent wraps the netlink send in a
+        forked child and arms per-task fail-nth so that exactly the Nth
+        kmalloc made by that child (anywhere in the syscall path: netlink
+        scaffold, fci handler, cdx dispatcher, control_*.c handler) is
+        forced to return NULL. `ignore-gfp-wait` is flipped off so
+        GFP_KERNEL allocations are eligible. Use this for err-path unwind
+        discipline tests: pair with a kmemleak cursor around the sweep
+        to catch leaks on unwind."""
+        body: dict = {
+            "fcode":       fcode & 0xFFFF,
+            "length":      length & 0xFFFF,
+            "payload_hex": payload.hex(),
+            "timeout_ms":  timeout_ms,
+        }
+        if nlmsg_len_override is not None:
+            body["nlmsg_len_override"] = nlmsg_len_override
+        if failslab_times is not None:
+            body["failslab_times"] = int(failslab_times)
+        async with session.post(f"{self.base_url}/fci/send", json=body) as r:
+            r.raise_for_status()
+            return await r.json()
+
+    async def netlink_send(
+        self,
+        session: aiohttp.ClientSession,
+        protocol: int,
+        msg: bytes,
+        *,
+        nlmsg_type: int = 0,
+        nlmsg_flags: int = 0,
+        nlmsg_len_override: int | None = None,
+        timeout_ms: int = 500,
+    ) -> dict:
+        body: dict = {
+            "protocol":    protocol,
+            "body_hex":    msg.hex(),
+            "nlmsg_type":  nlmsg_type,
+            "nlmsg_flags": nlmsg_flags,
+            "timeout_ms":  timeout_ms,
+        }
+        if nlmsg_len_override is not None:
+            body["nlmsg_len_override"] = nlmsg_len_override
+        async with session.post(f"{self.base_url}/netlink/send", json=body) as r:
+            r.raise_for_status()
+            return await r.json()
+
+    async def ioctl_send(
+        self,
+        session: aiohttp.ClientSession,
+        device: str,
+        cmd: int,
+        data: bytes = b"",
+        *,
+        uid: int | None = None,
+        userns: bool = False,
+        drop_cap_net_admin: bool = False,
+        timeout_ms: int = 1000,
+    ) -> dict:
+        """Issue an ioctl on the agent. `uid` drops to an unprivileged
+        UID before open. `userns=True` wraps the call in an unmapped
+        new user namespace (covers item 5's non-init userns case).
+        `drop_cap_net_admin=True` runs capset() between open and ioctl
+        so the dispatcher sees a CAP_NET_ADMIN-less effective set on a
+        privileged-opened fd (item 5's mid-flight cap-drop case)."""
+        body: dict = {
+            "device":     device,
+            "cmd":        int(cmd),
+            "data_hex":   data.hex(),
+            "timeout_ms": timeout_ms,
+        }
+        if uid is not None:
+            body["uid"] = int(uid)
+        if userns:
+            body["userns"] = True
+        if drop_cap_net_admin:
+            body["drop_cap_net_admin"] = True
+        async with session.post(f"{self.base_url}/ioctl/send", json=body) as r:
+            r.raise_for_status()
+            return await r.json()
+
+    async def exec_cmd(
+        self,
+        session: aiohttp.ClientSession,
+        argv: list[str],
+        *,
+        timeout_ms: int = 5000,
+    ) -> dict:
+        async with session.post(
+            f"{self.base_url}/exec",
+            json={"argv": argv, "timeout_ms": timeout_ms},
+        ) as r:
+            r.raise_for_status()
+            return await r.json()
+
+    async def fs_write(
+        self,
+        session: aiohttp.ClientSession,
+        path: str,
+        content: str | bytes,
+        *,
+        uid: int | None = None,
+        timeout_ms: int = 1000,
+    ) -> dict:
+        body: dict = {
+            "path":       path,
+            "content":    content if isinstance(content, str) else content.decode("latin-1"),
+            "timeout_ms": timeout_ms,
+        }
+        if uid is not None:
+            body["uid"] = int(uid)
+        async with session.post(f"{self.base_url}/fs/write", json=body) as r:
+            r.raise_for_status()
+            return await r.json()
+
+# Node endpoints — overridable via env so the harness works on anyone's
+# lab setup. The orchestrator runs on the WAN-side host. The LAN VM
+# sits behind the DUT's NAT and has no IP path from the orchestrator;
+# LAN-side scripting is driven by Console.lan() (libvirt PTY) instead.
+_DEFAULT_PORT = "9110"
+
+TARGET = Agent("target", f"http://{os.environ.get('ASK_TARGET_IP', '10.0.0.62')}:{_DEFAULT_PORT}")
+WAN    = Agent("wan",    f"http://{os.environ.get('ASK_WAN_IP',    '127.0.0.1')}:{_DEFAULT_PORT}")
