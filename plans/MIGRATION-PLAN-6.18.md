@@ -1,6 +1,7 @@
 # MIGRATION PLAN — Mainline Linux 6.18 Uplift
 
-> **Status:** PLAN (not started). Owner: producer (`kernel-ls1046a-build`) + consumer (`vyos-ls1046a-build`).
+> **Status:** Phase 0 in progress (started 2026-05-07). Owner: producer
+> (`kernel-ls1046a-build`) + consumer (`vyos-ls1046a-build`).
 > **Target:** retire `kernel-6.6.137-askN` (NXP `ask-6.6-port` base) and ship
 > `kernel-6.18.26-ask1` from `kernel.org` mainline + our re-ported ASK overlay.
 > **Trigger:** VyOS upstream `current` repo bumped `linux-image-*-vyos` to
@@ -8,34 +9,57 @@
 > `vyos-ipt-netflow`, `vyos-drivers-realtek-r8152` hard-depend on
 > `linux-image-6.18.26-vyos`, breaking consumer's chroot install on 6.6.137.
 
-## Strategic decisions (settled)
+## Strategic decisions (settled 2026-05-07)
 
-1. **Base = `kernel.org` mainline.** Not the NXP `ask-6.6-port` fork
-   (dead branch) and not `lf-6.12.y` (still NXP-forked). Use exactly
+1. **Base = `kernel.org` mainline** (Path A). Not the NXP `ask-6.6-port`
+   fork (dead branch) and not `lf-6.12.y` (still NXP-forked). Use exactly
    the URL VyOS rolling uses:
    `https://www.kernel.org/pub/linux/kernel/v6.x/linux-${ver}.tar.xz`
    with GPG verify against `torvalds@kernel.org` + `gregkh@kernel.org`.
-2. **Initial target = `6.18.26`** (matches `vyos-build@HEAD/data/defaults.toml`).
+2. **`we-are-mono/ASK mt-6.12.y` is reference-ONLY, never base.**
+   Vendored read-only under `reference/ASK-mt-6.12.y/` (committed snapshot,
+   no git submodule, no build-time fetch — `.clinerules/05-workspace-layout.md`
+   self-contained rule still binding). Used for:
+   - **Cribsheet** during patch refresh — how did `we-are-mono` re-shape
+     hook X for the 6.6→6.12 transition? Half of the API drift we face
+     (6.6→6.18) is already solved there.
+   - **Source for OOT lifts** when a symbol is genuinely out-of-mainline
+     (NXP-private API helper, SDK header type). Lifted code lands under
+     the existing `/* ASK-edit (...) */` marker discipline.
+   - **NOT** a base to re-import wholesale. The 266 SDK files we already
+     carry stay as our authoritative copy; we cherry-pick from mt-6.12.y
+     into them when a specific upstream fix is identifiable.
+   `fix/security-hardening` @ `422e184f` is also vendored
+   (`reference/ASK-fix-security-hardening/`) for cherry-picking discrete
+   audit findings.
+3. **Toolchain target = Debian trixie + gcc-14 + glibc 2.38** (matches
+   VyOS rolling). Build host upgraded bookworm → trixie at start of
+   Phase 0 because `gcc-14` from trixie hard-depends on `libc6 ≥ 2.38`
+   (incompatible with bookworm's `2.36`), so a pure pin-from-trixie
+   approach was infeasible.
+4. **Initial target = `6.18.26`** (matches `vyos-build@HEAD/data/defaults.toml`).
    Drift forward with VyOS rolling thereafter (6.18.27, 6.19.x, etc.).
-3. **Kept naming conventions:**
+5. **Kept naming conventions:**
    - Producer repo: `kernel-ls1046a-build` (renamed 2026-05-07).
    - New release branch: `mainline-ls1046a` (or `main`; see Phase 0 Q3).
    - New tag scheme: `kernel-6.18.26-askN` (and `kernel-6.18.27-askN` etc.
      when we drift). The `askN` counter resets per upstream KVER.
    - LTS-fallback branch `lts-6.6-ls1046a` retained on the renamed repo
      for any future 6.6.137 hotfixes; no active development.
-4. **NXP SDK driver overlay treatment.** The 266 files under
+6. **NXP SDK driver overlay treatment.** The 266 files under
    `release/patches/kernel/sdk-sources/` (sdk_fman, sdk_dpaa, fsl_qbman,
-   plus carry-overs) are kept as a one-time bootstrap from the working
-   `nxp-qoriq/linux ask-6.6-port` source tree, then maintained in-tree
+   plus carry-overs) stay in-tree as authoritative copies, maintained
    under the existing `/* ASK-edit (askNN, mainline-6.18-port): rationale */`
    marker discipline (see `.clinerules/20-sdk-driver-rules.md`). Currently
-   17 markers; expect the count to grow during phase 1 as 6.6→6.18 API
-   drift surfaces.
-5. **No re-introduction of mainline FMan/DPAA/QBMan.** The hard rules in
+   17 markers; **expected reduction to ~5** after Phase 1 cherry-picks
+   the post-ask6 fixes that mt-6.12.y already absorbed upstream.
+7. **No re-introduction of mainline FMan/DPAA/QBMan.** The hard rules in
    `.clinerules/20-sdk-driver-rules.md` (use `FSL_SDK_*=y`, never
    `FSL_FMAN`/`FSL_DPAA_ETH`/mainline `drivers/soc/fsl/qbman/`) carry
    forward unchanged — this is what makes ASK userspace ABI keep working.
+8. **Path-B regret valve:** if VyOS rolling itself ever hard-pivots to
+   an NXP-fork base for `linux-image-*-vyos`, we re-evaluate. Until then
+   mainline is invariant.
 
 ## Open design decisions (need resolution before phase 2)
 
@@ -49,45 +73,144 @@
 
 These default to the (b/(a) options unless the user explicitly overrides.
 
-## Phase 0 — Reconnaissance (no code changes)
+## Phase 0 — Toolchain, references, classification table
 
-**Goal:** capture the exact state of `vyos-build@HEAD` we'll be aligning to,
-and produce a concrete diff against our current `release/patches/vyos/` +
-`release/vyos-base/` so we know what's a real port vs. a no-op rebase.
+**Goal:** make the build host capable of producing a 6.18 kernel that
+matches VyOS rolling's binary shape, vendor the read-only ASK references,
+and produce a 3-column classification table that converts our current
+patch-debt into a bounded port-of-known-shape.
 
-Tasks:
+### Phase 0.A — Build host toolchain bump (DONE 2026-05-07 in part)
 
-- [ ] Snapshot `vyos-build@HEAD` reference artifacts into a non-tracked
-      sandbox dir (e.g. `work/vyos-build-snapshot/`):
-  - [ ] `data/defaults.toml`
-  - [ ] `scripts/package-build/linux-kernel/build-kernel.sh` (canonical
-        kernel-build flow we mirror)
-  - [ ] `scripts/package-build/linux-kernel/patches/kernel/*.patch`
-  - [ ] `config/arm64/vyos_defconfig`
-  - [ ] `data/certificates/*.pem`
-- [ ] Diff `release/patches/vyos/{001,002,003}-*.patch` against the snapshot's
-      `patches/kernel/*.patch`:
-  - [ ] `001-vyos-linkstate-ip-device-attribute.patch` — still needed?
-        (mainline 6.18 may have absorbed `IFLA_LINK_STATE`).
-  - [ ] `002-vyos-inotify-stackable-filesystems.patch` — still needed?
-  - [ ] `003-vyos-build-linux-perf-package.patch` — VyOS may now ship
-        their own packaging delta.
-- [ ] Diff `release/vyos-base/arm64/vyos_defconfig` against snapshot's
-      `config/arm64/vyos_defconfig`. Re-vendor ours from theirs (they are
-      the source of truth) and re-apply the 7 fragment overlays
-      (`{00-filesystems,01-executable-file-formats,02-module-signing,
-      10-networking,11-encapsulation,11-wwan,20-netfilter}.config`).
-- [ ] Diff `release/ask.config` against the merged 6.18 base — note any
-      symbols that have moved/renamed (e.g. `CONFIG_NET_KEY` location).
-- [ ] Audit `versions.lock` for assumptions about 6.6.y.
+- [x] Install kernel-build deps (`debhelper`, `bc`, `kmod`, `cpio`, `flex`,
+      `bison`, `libssl-dev`, `libelf-dev`, `rsync`).
+- [x] Install perf-build deps (`python3-dev`, `libdw-dev`, `libunwind-dev`,
+      `libslang2-dev`, `libperl-dev`, `libpython3-dev`, `libdebuginfod-dev`,
+      `systemtap-sdt-dev`, `libnuma-dev`, `libbabeltrace-dev`, `libcap-dev`,
+      `libtraceevent-dev`, `binutils-dev`, `libiberty-dev`).
+- [x] Install ASK-userspace + VyOS-build extras (`libpcre2-dev`,
+      `libxml2-dev`, `libtclap-dev`, netfilter/conntrack libs, `bubblewrap`,
+      `git-lfs`, `kpartx`, `clang`, `llvm`, `cmake`, `protobuf-compiler`,
+      `python3-cracklib`, `python3-protobuf`, `libreadline-dev`,
+      `liblua5.3-dev`, `byacc`, `minisign`, `sbsigntool`, `efitools`,
+      `mokutil`, `qemu-user-static`, `libcap-ng-dev`, `libseccomp-dev`,
+      `liburing-dev`).
+- [x] Wire ccache into producer build scripts (`scripts/common.sh:setup_ccache()`,
+      `build-kernel.sh`, `build-ask-modules.sh`, `build-ask-iptables.sh`,
+      `build-ask-ppp.sh`).
+- [x] Verify 6.6.137 still builds clean on bookworm/gcc-12 (270s,
+      4 .debs produced).
+- [x] **Full release upgrade host bookworm → trixie** (gcc-14 + glibc 2.38).
+      Required because trixie's `gcc-14` hard-depends on `libc6 ≥ 2.38`
+      (bookworm has 2.36); narrow apt-pinning attempted and abandoned.
+      Done 2026-05-07: now Debian 13.4, gcc 14.2.0, glibc 2.41.
+- [-] ~~Re-run the 6.6.137 build on trixie/gcc-14 as a regression test.~~
+      **Skipped** — we are not maintaining a 6.6 release line on trixie;
+      the next producer build is 6.18.26 directly. If 6.6.137-ask49
+      hotfixes are ever needed they will build on bookworm/gcc-12 from
+      the `lts-6.6-ls1046a` branch on a separate runner.
 
-**Exit criteria:** a `plans/PHASE-0-FINDINGS.md` doc enumerating
-- which `vyos/` patches are no-ops on 6.18 (delete),
-- which need a re-port,
-- the defconfig delta (added/removed/moved symbols),
-- D1/D2/D3/D5 recommendation re-confirmed against actual 6.18 surface.
+### Phase 0.B — Vendor read-only ASK references (DONE 2026-05-07)
 
-No commits. ETA: half a day of focused reading.
+**Important re-discovery during execution:** `we-are-mono/ASK` is **not
+a kernel fork**. It is structurally identical to our `release/`: a small
+(~6 MB) repo containing OOT module sources, kernel patches, and userspace
+patches, plus build glue. The headline asset is a single consolidated
+patch — `patches/kernel/002-mono-gateway-ask-kernel_linux_6_12.patch`
+(17,900 lines, 138 files) — which captures the **complete `we-are-mono`
+ASK delta against linux 6.12**. That is the cribsheet we want.
+
+This collapses what would have been a several-day port-aided-by-diff
+exercise to a much shorter "rebase one big patch" exercise.
+
+- [x] Vendor `we-are-mono/ASK @ mt-6.12.y` (`a211ea86`) into
+      `reference/ASK-mt-6.12.y/`. Whole-repo vendored (no `.git`,
+      no `build/`); 5.1 MB / 279 files.
+- [x] Vendor `we-are-mono/ASK @ fix/security-hardening` (`422e184f`)
+      into `reference/ASK-fix-security-hardening/` (6.4 MB).
+- [x] Record provenance in `reference/PROVENANCE.md`, including a
+      mapping table showing how upstream paths correspond to our
+      `release/` layout.
+- [ ] Update `.clinerules/05-workspace-layout.md` to declare
+      `reference/` a permitted top-level directory and document the
+      "no build script may read from `reference/`" rule.
+
+### Phase 0.C — Vendor `vyos-build@HEAD` reference snapshot (DONE 2026-05-07)
+
+- [x] Snapshot `vyos-build@HEAD` (SHA `2413b09291341031d77066db5f84509a7def54cd`,
+      branch `current`) into `reference/vyos-build/`. 508 KB / 40 files:
+  - [x] `data/defaults.toml` (kernel pin: `6.18.26`, flavor `vyos`)
+  - [x] `scripts/package-build/linux-kernel/build-kernel.sh`
+  - [x] `scripts/package-build/linux-kernel/patches/kernel/*.patch` (2 patches)
+  - [x] `scripts/package-build/linux-kernel/config/arm64/vyos_defconfig` (5,797 lines)
+  - [x] `scripts/package-build/linux-kernel/config/*.config` (21 fragments)
+  - [x] `scripts/package-build/linux-kernel/patches/{intel-qat,ipt-netflow,ixgbe}/`
+  - [x] `data/certificates/vyos-prod-2025-linux.pem`
+  - [x] Provenance recorded in `reference/PROVENANCE.md`.
+
+### Phase 0.D — Classification table (PHASE-0-FINDINGS.md)
+
+**Restructured 2026-05-07 after Phase 0.B re-discovery.** The headline
+question is no longer "for each of our 14 patches, what shape does
+mt-6.12 give it?" — because mt-6.12 *consolidated* its entire kernel
+delta into a single 138-file, 17,900-line patch
+(`reference/ASK-mt-6.12.y/patches/kernel/002-mono-gateway-ask-kernel_linux_6_12.patch`).
+
+The classification therefore becomes a **3-way overlap analysis**:
+
+```
+   Set A: our 14 patches (ask/ + fixes/) and 17 ASK-edit markers
+   Set B: mt-6.12's consolidated 002-mono-gateway-ask-kernel_linux_6_12.patch
+   Set C: mainline 6.18.26 source (downloaded read-only via fetch-kernel.sh)
+```
+
+Per-touch-point classification, recorded in `plans/PHASE-0-FINDINGS.md`:
+
+| Quadrant | A∩B | A∩B' (only ours) | A'∩B (only mt-6.12) | Action |
+|---|---|---|---|---|
+| Q1: in mainline 6.18 already | obsolete in both | obsolete in ours | obsolete in mt-6.12 | drop |
+| Q2: not in mainline 6.18 | re-port to 6.18 (mt-6.12 shape preferred) | re-port to 6.18 from our shape | port to 6.18 from mt-6.12 (we missed it) | re-port |
+
+Sub-tasks:
+
+- [ ] **A∩B intersection:** for every file touched by both our patch
+      stack AND `002-mono-gateway-ask-kernel_linux_6_12.patch`, three-way
+      diff (`diff3 ours theirs mainline`) and record per-hunk:
+      identical / mt-6.12-cleaner / ours-cleaner / mainline-absorbed.
+- [ ] **A\B (our-only):** patches we have that mt-6.12 doesn't.
+      Likely candidates from a quick scan:
+  - `094-swphy-10g-fixed-link.patch` — verify mt-6.12 doesn't carry
+  - `095-leds-lp5812-register.patch` — Mono Gateway-specific, mt-6.12
+    is also a Mono Gateway repo so it probably HAS this — investigate
+  - `097-ask-fci-nlkey-narrow-gate.patch` — defconfig logic patch
+  - `102-arm64-ioremap-cache-ns-shim.patch` — NXP-private NS-bit attrs
+  - `110-sdk-fman-dpaa-qbman-kasan-sanitize-off.patch` — Makefile flags
+- [ ] **B\A (mt-6.12-only):** hunks in their consolidated patch that we
+      don't have. These are either fixes we should adopt or features
+      we don't need (Mono Gateway-specific).
+- [ ] **Marker reconciliation:** for each `/* ASK-edit (askNN) */`
+      marker in `release/patches/kernel/sdk-sources/`, locate the
+      corresponding line in mt-6.12's consolidated patch:
+  - same edit → adopt mt-6.12 framing, update marker tag
+  - different edit → keep ours, document why
+  - no edit (mt-6.12 has untouched original) → our edit is a real
+    debt; carry forward to 6.18
+- [ ] **VyOS defconfig diff:** snapshot `vyos-build@HEAD` separately
+      (Phase 0.C) and diff against our `release/vyos-base/arm64/vyos_defconfig`.
+- [ ] **Resolve D1 / D2 / D3 / D5** against actual 6.18 surface
+      (mainline) plus mt-6.12 cribsheet.
+
+**Exit criteria:** `plans/PHASE-0-FINDINGS.md` exists with a 3-way
+overlap table for every patch hunk and ASK-edit marker, plus the
+defconfig diff. The expected outcome is that **most** of our `fixes/`
+patches collapse to no-ops (mt-6.12 absorbed them, mainline 6.18 may
+have absorbed some too) and the marker count drops 17 → ~5.
+
+No commits to ASK source files or patches in Phase 0 — only `plans/`,
+`reference/`, and `.clinerules/` updates allowed.
+
+ETA: 1 day (was: 1–2 days; the consolidated upstream patch makes the
+diff job mechanical instead of file-by-file detective work).
 
 ## Phase 1 — Kernel base + SDK overlay compiles on 6.18
 
