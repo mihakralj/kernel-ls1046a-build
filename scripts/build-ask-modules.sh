@@ -231,8 +231,20 @@ build_mod() {
     local rc=$?
     set -e
     if (( rc != 0 )); then
-        warn "last 40 lines of $log:"
-        tail -40 "$log" >&2
+        # The verbose kbuild log is dominated by `# cmd_gen_symversions_c …`
+        # reproducer echoes that easily exceed any reasonable tail size and
+        # bury the actual diagnostic.  Surface, in order:
+        #   1. Every line containing 'error:' / 'Error' / 'undefined reference'
+        #      / 'fatal' (with a few lines of leading context), filtered to
+        #      drop the kbuild reproducer noise.
+        #   2. The last 80 lines of the log as a final fallback.
+        warn "compiler diagnostics from $log:"
+        grep -nE 'error:|undefined reference|fatal|Error [0-9]+|\*\*\* ' "$log" \
+            | grep -vE '^\s*[0-9]+ \| .*t_Error' \
+            | grep -vE '# cmd_' \
+            | tail -120 >&2 || true
+        warn "last 80 lines of $log:"
+        tail -80 "$log" | grep -vE '^# cmd_|^  if nm ' >&2 || true
         err "$name build failed (exit $rc)"
     fi
 
