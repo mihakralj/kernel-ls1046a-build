@@ -57,7 +57,7 @@ new file mode 100644
 index 000000000..b817c3734
 --- /dev/null
 +++ b/net/key/ask_fci_nlkey.c
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,65 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * ASK FCI NETLINK_KEY (proto 32) registration.
@@ -86,6 +86,17 @@ index 000000000..b817c3734
 +#include <linux/netlink.h>
 +#include <net/sock.h>
 +#include <net/net_namespace.h>
++
++/*
++ * NETLINK_KEY=32 is the protocol number that legacy NXP ASK userspace
++ * (cmm/fci_open(FCILIB_KEY_TYPE)) opens. Mainline does not reserve it
++ * in <linux/netlink.h> (deleted ask/040 used to add it as a uapi). We
++ * register the kernel side here under that fixed number; user-space
++ * already hard-codes 32 in its socket() call.
++ */
++#ifndef NETLINK_KEY
++#define NETLINK_KEY 32
++#endif
 +
 +static struct sock *ask_fci_nlkey_sock;
 +

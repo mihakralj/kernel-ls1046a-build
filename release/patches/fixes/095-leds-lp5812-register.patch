@@ -28,7 +28,7 @@ diff --git a/drivers/leds/Kconfig b/drivers/leds/Kconfig
 index 3132439f9..5ab892848 100644
 --- a/drivers/leds/Kconfig
 +++ b/drivers/leds/Kconfig
-@@ -900,6 +900,9 @@ source "drivers/leds/flash/Kconfig"
+@@ -1028,6 +1028,9 @@ source "drivers/leds/flash/Kconfig"
  comment "RGB LED drivers"
  source "drivers/leds/rgb/Kconfig"
  
@@ -42,10 +42,10 @@ diff --git a/drivers/leds/Makefile b/drivers/leds/Makefile
 index d7348e8bc..eb39eae68 100644
 --- a/drivers/leds/Makefile
 +++ b/drivers/leds/Makefile
-@@ -112,3 +112,6 @@ obj-y					+= blink/
+@@ -124,3 +124,6 @@ obj-y					+= blink/
  
- # Simple LED drivers
- obj-y					+= simple/
+ # Simatic LED drivers
+ obj-y					+= simatic/
 +
 +# Mono Gateway: TI LP5812 I2C LED controller (out-of-tree, sourced via sdk-sources)
 +obj-$(CONFIG_LEDS_LP5812)		+= lp5812/
