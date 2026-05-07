@@ -1,5 +1,4 @@
 diff --git a/drivers/net/usb/usbnet.c b/drivers/net/usb/usbnet.c
-index a26a7435d84b..f9fb7d776ec9 100644
 --- a/drivers/net/usb/usbnet.c
 +++ b/drivers/net/usb/usbnet.c
 @@ -31,6 +31,15 @@
@@ -18,7 +17,7 @@ index a26a7435d84b..f9fb7d776ec9 100644
  /*-------------------------------------------------------------------------*/
  
  /*
-@@ -504,11 +513,19 @@ static int rx_submit (struct usbnet *dev, struct urb *urb, gfp_t flags)
+@@ -504,11 +513,19 @@ static int rx_submit (struct usbnet *dev
  		usb_free_urb(urb);
  		return -ENOLINK;
  	}
@@ -39,7 +38,7 @@ index a26a7435d84b..f9fb7d776ec9 100644
  	if (!skb) {
  		netif_dbg(dev, rx_err, dev->net, "no rx skb\n");
  		usbnet_defer_kevent (dev, EVENT_RX_MEMORY);
-@@ -516,6 +533,10 @@ static int rx_submit (struct usbnet *dev, struct urb *urb, gfp_t flags)
+@@ -516,6 +533,10 @@ static int rx_submit (struct usbnet *dev
  		return -ENOMEM;
  	}
  
@@ -51,21 +50,20 @@ index a26a7435d84b..f9fb7d776ec9 100644
  	entry->urb = urb;
  	entry->dev = dev;
 diff --git a/include/linux/netdevice.h b/include/linux/netdevice.h
-index 202e557496fb..34092cceec20 100644
 --- a/include/linux/netdevice.h
 +++ b/include/linux/netdevice.h
 @@ -2417,6 +2417,10 @@ struct net_device {
- 	struct rtnl_hw_stats64	*offload_xstats_l3;
- 
- 	struct devlink_port	*devlink_port;
+ /* TCP minimal MSS is 8 (TCP_MIN_GSO_SIZE),
+  * and shinfo->gso_segs is a 16bit field.
+  */
 +
 +#if defined(CONFIG_CPE_FAST_PATH)
 +	bool				wifi_offload_dev;
 +#endif
- };
- #define to_net_dev(d) container_of(d, struct net_device, dev)
+ #define GSO_MAX_SIZE		(8 * GSO_MAX_SEGS)
  
-@@ -3108,10 +3112,31 @@ u16 dev_pick_tx_cpu_id(struct net_device *dev, struct sk_buff *skb,
+ #define TSO_LEGACY_MAX_SIZE	65536
+@@ -3365,10 +3369,31 @@ u16 dev_pick_tx_zero(struct net_device *
  int __dev_queue_xmit(struct sk_buff *skb, struct net_device *sb_dev);
  int __dev_direct_xmit(struct sk_buff *skb, u16 queue_id);
  
@@ -97,7 +95,7 @@ index 202e557496fb..34092cceec20 100644
  
  static inline int dev_queue_xmit_accel(struct sk_buff *skb,
  				       struct net_device *sb_dev)
-@@ -5283,6 +5304,14 @@ extern struct list_head ptype_base[PTYPE_HASH_SIZE] __read_mostly;
+@@ -5647,6 +5672,14 @@ extern struct list_head ptype_base[PTYPE
  
  extern struct net_device *blackhole_netdev;
  
@@ -113,10 +111,9 @@ index 202e557496fb..34092cceec20 100644
  #define DEV_STATS_INC(DEV, FIELD) atomic_long_inc(&(DEV)->stats.__##FIELD)
  #define DEV_STATS_ADD(DEV, FIELD, VAL) 	\
 diff --git a/include/linux/poll.h b/include/linux/poll.h
-index fc641b50f129..2b1f63e79be8 100644
 --- a/include/linux/poll.h
 +++ b/include/linux/poll.h
-@@ -126,7 +126,6 @@ extern int poll_select_set_timeout(struct timespec64 *to, time64_t sec,
+@@ -116,7 +116,6 @@ extern int poll_select_set_timeout(struc
  
  #define __MAP(v, from, to) \
  	(from < to ? (v & from) * (to/from) : (v & from) / (from/to))
@@ -125,10 +122,9 @@ index fc641b50f129..2b1f63e79be8 100644
  {
  	__u16 v = (__force __u16)val;
 diff --git a/include/net/ip.h b/include/net/ip.h
-index bacdb4fecc89..20c4b49481fc 100644
 --- a/include/net/ip.h
 +++ b/include/net/ip.h
-@@ -704,6 +704,9 @@ enum ip_defrag_users {
+@@ -737,6 +737,9 @@ enum ip_defrag_users {
  	IP_DEFRAG_VS_FWD,
  	IP_DEFRAG_AF_PACKET,
  	IP_DEFRAG_MACVLAN,
@@ -139,7 +135,6 @@ index bacdb4fecc89..20c4b49481fc 100644
  
  /* Return true if the value of 'user' is between 'lower_bond'
 diff --git a/include/net/ip6_tunnel.h b/include/net/ip6_tunnel.h
-index 74b369bddf49..2296d6ebb748 100644
 --- a/include/net/ip6_tunnel.h
 +++ b/include/net/ip6_tunnel.h
 @@ -52,7 +52,12 @@ struct ip6_tnl {
@@ -157,7 +152,6 @@ index 74b369bddf49..2296d6ebb748 100644
  	unsigned long err_time;
  
 diff --git a/include/uapi/linux/if.h b/include/uapi/linux/if.h
-index 797ba2c1562a..ba46e4f8b021 100644
 --- a/include/uapi/linux/if.h
 +++ b/include/uapi/linux/if.h
 @@ -104,6 +104,7 @@ enum net_device_flags {
@@ -178,7 +172,6 @@ index 797ba2c1562a..ba46e4f8b021 100644
  		IFF_MASTER|IFF_SLAVE|IFF_RUNNING|IFF_LOWER_UP|IFF_DORMANT)
  
 diff --git a/include/uapi/linux/if_arp.h b/include/uapi/linux/if_arp.h
-index 4783af9fe520..822e21ba5ebb 100644
 --- a/include/uapi/linux/if_arp.h
 +++ b/include/uapi/linux/if_arp.h
 @@ -29,6 +29,7 @@
@@ -190,7 +183,6 @@ index 4783af9fe520..822e21ba5ebb 100644
  #define	ARPHRD_AX25	3		/* AX.25 Level 2		*/
  #define	ARPHRD_PRONET	4		/* PROnet token ring		*/
 diff --git a/include/uapi/linux/if_tunnel.h b/include/uapi/linux/if_tunnel.h
-index 102119628ff5..bbde64ac683c 100644
 --- a/include/uapi/linux/if_tunnel.h
 +++ b/include/uapi/linux/if_tunnel.h
 @@ -22,6 +22,16 @@
@@ -233,7 +225,6 @@ index 102119628ff5..bbde64ac683c 100644
  	IFLA_GRE_UNSPEC,
  	IFLA_GRE_LINK,
 diff --git a/include/uapi/linux/ip6_tunnel.h b/include/uapi/linux/ip6_tunnel.h
-index 0245269b037c..3fb6f7cda3bc 100644
 --- a/include/uapi/linux/ip6_tunnel.h
 +++ b/include/uapi/linux/ip6_tunnel.h
 @@ -53,4 +53,50 @@ struct ip6_tnl_parm2 {
@@ -288,10 +279,9 @@ index 0245269b037c..3fb6f7cda3bc 100644
 +#endif
 +
 diff --git a/include/uapi/linux/rtnetlink.h b/include/uapi/linux/rtnetlink.h
-index 63a0922937e7..33115c765e37 100644
 --- a/include/uapi/linux/rtnetlink.h
 +++ b/include/uapi/linux/rtnetlink.h
-@@ -151,6 +151,14 @@ enum {
+@@ -159,6 +159,14 @@ enum {
  
  	RTM_NEWCACHEREPORT = 96,
  #define RTM_NEWCACHEREPORT RTM_NEWCACHEREPORT
@@ -307,12 +297,11 @@ index 63a0922937e7..33115c765e37 100644
  	RTM_NEWCHAIN = 100,
  #define RTM_NEWCHAIN RTM_NEWCHAIN
 diff --git a/net/core/dev.c b/net/core/dev.c
-index 56b6797589f5..4612c083086c 100644
 --- a/net/core/dev.c
 +++ b/net/core/dev.c
-@@ -189,6 +189,10 @@ static struct napi_struct *napi_by_id(unsigned int napi_id);
- DEFINE_RWLOCK(dev_base_lock);
- EXPORT_SYMBOL(dev_base_lock);
+@@ -176,6 +176,10 @@ static int call_netdevice_notifiers_exta
+ 					   struct net_device *dev,
+ 					   struct netlink_ext_ack *extack);
  
 +#if defined(CONFIG_CPE_FAST_PATH)
 +static fp_iface_stats_get fast_path_stats_get;
@@ -321,7 +310,7 @@ index 56b6797589f5..4612c083086c 100644
  static DEFINE_MUTEX(ifalias_mutex);
  
  /* protects napi_hash addition/deletion and napi_gen_id */
-@@ -3724,10 +3728,17 @@ static struct sk_buff *validate_xmit_skb(struct sk_buff *skb, struct net_device
+@@ -4032,10 +4036,17 @@ static struct sk_buff *validate_xmit_skb
  			skb = segs;
  		}
  	} else {
@@ -343,7 +332,7 @@ index 56b6797589f5..4612c083086c 100644
  		/* If packet is not checksummed and device does not
  		 * support checksumming for this protocol, complete
  		 * checksumming here.
-@@ -4480,6 +4491,40 @@ int __dev_queue_xmit(struct sk_buff *skb, struct net_device *sb_dev)
+@@ -4832,6 +4843,40 @@ out:
  }
  EXPORT_SYMBOL(__dev_queue_xmit);
  
@@ -384,7 +373,7 @@ index 56b6797589f5..4612c083086c 100644
  int __dev_direct_xmit(struct sk_buff *skb, u16 queue_id)
  {
  	struct net_device *dev = skb->dev;
-@@ -5434,6 +5479,14 @@ static int __netif_receive_skb_core(struct sk_buff **pskb, bool pfmemalloc,
+@@ -5900,6 +5945,14 @@ static int __netif_receive_skb_core(stru
  
  	trace_netif_receive_skb(skb);
  
@@ -399,16 +388,7 @@ index 56b6797589f5..4612c083086c 100644
  	orig_dev = skb->dev;
  
  	skb_reset_network_header(skb);
-@@ -6676,8 +6729,6 @@ static int __napi_poll(struct napi_struct *n, bool *repoll)
- 		napi_gro_flush(n, HZ >= 1000);
- 	}
- 
--	gro_normal_list(n);
--
- 	/* Some drivers may have called napi_schedule
- 	 * prior to exhausting their budget.
- 	 */
-@@ -10703,10 +10754,28 @@ struct rtnl_link_stats64 *dev_get_stats(struct net_device *dev,
+@@ -11803,10 +11856,28 @@ struct rtnl_link_stats64 *dev_get_stats(
  			storage->rx_otherhost_dropped += READ_ONCE(core_stats->rx_otherhost_dropped);
  		}
  	}
@@ -438,10 +418,9 @@ index 56b6797589f5..4612c083086c 100644
   *	dev_fetch_sw_netstats - get per-cpu network device statistics
   *	@s: place to store stats
 diff --git a/net/core/gro.c b/net/core/gro.c
-index 92cb86d4ce50..e4f60c064a09 100644
 --- a/net/core/gro.c
 +++ b/net/core/gro.c
-@@ -621,6 +621,11 @@ static void napi_reuse_skb(struct napi_struct *napi, struct sk_buff *skb)
+@@ -653,6 +653,11 @@ static void napi_reuse_skb(struct napi_s
  	__vlan_hwaccel_clear_tag(skb);
  	skb->dev = napi->dev;
  	skb->skb_iif = 0;
@@ -454,10 +433,9 @@ index 92cb86d4ce50..e4f60c064a09 100644
  	/* eth_type_trans() assumes pkt_type is PACKET_HOST */
  	skb->pkt_type = PACKET_HOST;
 diff --git a/net/core/rtnetlink.c b/net/core/rtnetlink.c
-index 161356313203..0402bdc6bae8 100644
 --- a/net/core/rtnetlink.c
 +++ b/net/core/rtnetlink.c
-@@ -814,9 +814,17 @@ int rtnetlink_put_metrics(struct sk_buff *skb, u32 *metrics)
+@@ -978,9 +978,17 @@ int rtnetlink_put_metrics(struct sk_buff
  	struct nlattr *mx;
  	int i, valid = 0;
  
@@ -475,7 +453,7 @@ index 161356313203..0402bdc6bae8 100644
  
  	mx = nla_nest_start_noflag(skb, RTA_METRICS);
  	if (mx == NULL)
-@@ -846,6 +854,17 @@ int rtnetlink_put_metrics(struct sk_buff *skb, u32 *metrics)
+@@ -1010,6 +1018,17 @@ int rtnetlink_put_metrics(struct sk_buff
  			}
  			valid++;
  		}
@@ -493,7 +471,7 @@ index 161356313203..0402bdc6bae8 100644
  	}
  
  	if (!valid) {
-@@ -4117,6 +4136,9 @@ void rtmsg_ifinfo(int type, struct net_device *dev, unsigned int change,
+@@ -4487,6 +4506,9 @@ void rtmsg_ifinfo(int type, struct net_d
  	rtmsg_ifinfo_event(type, dev, change, rtnl_get_event(0), flags,
  			   NULL, 0, portid, nlh);
  }
@@ -504,7 +482,6 @@ index 161356313203..0402bdc6bae8 100644
  void rtmsg_ifinfo_newnet(int type, struct net_device *dev, unsigned int change,
  			 gfp_t flags, int *new_nsid, int new_ifindex)
 diff --git a/net/ipv4/Kconfig b/net/ipv4/Kconfig
-index 2dfb12230f08..79900616505f 100644
 --- a/net/ipv4/Kconfig
 +++ b/net/ipv4/Kconfig
 @@ -392,6 +392,12 @@ config INET_ESPINTCP
@@ -521,10 +498,9 @@ index 2dfb12230f08..79900616505f 100644
  	tristate "IP: IPComp transformation"
  	select INET_XFRM_TUNNEL
 diff --git a/net/ipv4/ip_output.c b/net/ipv4/ip_output.c
-index ff8040101193..4032b9d6e461 100644
 --- a/net/ipv4/ip_output.c
 +++ b/net/ipv4/ip_output.c
-@@ -103,6 +103,17 @@ int __ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
+@@ -105,6 +105,17 @@ int __ip_local_out(struct net *net, stru
  
  	IP_INC_STATS(net, IPSTATS_MIB_OUTREQUESTS);
  
@@ -542,7 +518,7 @@ index ff8040101193..4032b9d6e461 100644
  	iph_set_totlen(iph, skb->len);
  	ip_send_check(iph);
  
-@@ -113,8 +124,19 @@ int __ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
+@@ -115,8 +126,19 @@ int __ip_local_out(struct net *net, stru
  	if (unlikely(!skb))
  		return 0;
  
@@ -560,9 +536,9 @@ index ff8040101193..4032b9d6e461 100644
 +	else
 +#endif /* endif for CONFIG_INET_IPSEC_OFFLOAD */
  	return nf_hook(NFPROTO_IPV4, NF_INET_LOCAL_OUT,
- 		       net, sk, skb, NULL, skb_dst(skb)->dev,
+ 		       net, sk, skb, NULL, skb_dst_dev(skb),
  		       dst_output);
-@@ -307,7 +329,11 @@ static int __ip_finish_output(struct net *net, struct sock *sk, struct sk_buff *
+@@ -309,7 +331,11 @@ static int __ip_finish_output(struct net
  	if (skb_is_gso(skb))
  		return ip_finish_output_gso(net, sk, skb, mtu);
  
@@ -575,7 +551,7 @@ index ff8040101193..4032b9d6e461 100644
  		return ip_fragment(net, sk, skb, mtu, ip_finish_output2);
  
  	return ip_finish_output2(net, sk, skb);
-@@ -417,6 +443,13 @@ int ip_mc_output(struct net *net, struct sock *sk, struct sk_buff *skb)
+@@ -419,6 +445,13 @@ int ip_mc_output(struct net *net, struct
  				ip_mc_finish_output);
  	}
  
@@ -589,7 +565,7 @@ index ff8040101193..4032b9d6e461 100644
  	return NF_HOOK_COND(NFPROTO_IPV4, NF_INET_POST_ROUTING,
  			    net, sk, skb, NULL, skb->dev,
  			    ip_finish_output,
-@@ -565,6 +598,9 @@ static void ip_copy_metadata(struct sk_buff *to, struct sk_buff *from)
+@@ -559,6 +592,9 @@ static void ip_copy_metadata(struct sk_b
  	skb_dst_copy(to, from);
  	to->dev = from->dev;
  	to->mark = from->mark;
@@ -600,10 +576,9 @@ index ff8040101193..4032b9d6e461 100644
  	skb_copy_hash(to, from);
  
 diff --git a/net/ipv4/ip_tunnel.c b/net/ipv4/ip_tunnel.c
-index 090403c8cc6c..afa658c812ff 100644
 --- a/net/ipv4/ip_tunnel.c
 +++ b/net/ipv4/ip_tunnel.c
-@@ -438,6 +438,9 @@ int ip_tunnel_rcv(struct ip_tunnel *tunnel, struct sk_buff *skb,
+@@ -439,6 +439,9 @@ int ip_tunnel_rcv(struct ip_tunnel *tunn
  		skb->protocol = eth_type_trans(skb, tunnel->dev);
  		skb_postpull_rcsum(skb, eth_hdr(skb), ETH_HLEN);
  	} else {
@@ -614,7 +589,6 @@ index 090403c8cc6c..afa658c812ff 100644
  	}
  
 diff --git a/net/ipv6/Kconfig b/net/ipv6/Kconfig
-index 1c9c686d9522..396a081a12b9 100644
 --- a/net/ipv6/Kconfig
 +++ b/net/ipv6/Kconfig
 @@ -103,6 +103,12 @@ config INET6_ESPINTCP
@@ -631,10 +605,9 @@ index 1c9c686d9522..396a081a12b9 100644
  	tristate "IPv6: IPComp transformation"
  	select INET6_XFRM_TUNNEL
 diff --git a/net/ipv6/ip6_output.c b/net/ipv6/ip6_output.c
-index c86d5dca29df..005642c7007d 100644
 --- a/net/ipv6/ip6_output.c
 +++ b/net/ipv6/ip6_output.c
-@@ -83,6 +83,13 @@ static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *
+@@ -80,6 +80,13 @@ static int ip6_finish_output2(struct net
  
  	hdr = ipv6_hdr(skb);
  	daddr = &hdr->daddr;
@@ -648,7 +621,7 @@ index c86d5dca29df..005642c7007d 100644
  	if (ipv6_addr_is_multicast(daddr)) {
  		if (!(dev->flags & IFF_LOOPBACK) && sk_mc_loop(sk) &&
  		    ((mroute6_is_socket(net, skb) &&
-@@ -114,6 +121,9 @@ static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *
+@@ -111,6 +118,9 @@ static int ip6_finish_output2(struct net
  		}
  	}
  
@@ -658,10 +631,10 @@ index c86d5dca29df..005642c7007d 100644
  	if (lwtunnel_xmit_redirect(dst->lwtstate)) {
  		int res = lwtunnel_xmit(skb);
  
-@@ -237,6 +247,13 @@ int ip6_output(struct net *net, struct sock *sk, struct sk_buff *skb)
- 		return 0;
- 	}
- 
+@@ -234,6 +244,13 @@ int ip6_output(struct net *net, struct s
+ 	skb->protocol = htons(ETH_P_IPV6);
+ 	rcu_read_lock();
+ 	dev = dst_dev_rcu(dst);
 +#if defined(CONFIG_INET6_IPSEC_OFFLOAD)
 +	/* Bypass invoking post routing hooks since the tunnel header and ESP
 +	 * processing is not done in slow path for IPSec offloaded cases
@@ -669,10 +642,10 @@ index c86d5dca29df..005642c7007d 100644
 +	if (skb->ipsec_offload)
 +		return ip6_finish_output(net, sk, skb);
 +#endif
- 	return NF_HOOK_COND(NFPROTO_IPV6, NF_INET_POST_ROUTING,
- 			    net, sk, skb, indev, dev,
- 			    ip6_finish_output,
-@@ -683,6 +700,9 @@ static void ip6_copy_metadata(struct sk_buff *to, struct sk_buff *from)
+ 	idev = ip6_dst_idev(dst);
+ 	skb->dev = dev;
+ 
+@@ -697,6 +714,9 @@ static void ip6_copy_metadata(struct sk_
  	skb_dst_set(to, dst_clone(skb_dst(from)));
  	to->dev = from->dev;
  	to->mark = from->mark;
@@ -683,7 +656,6 @@ index c86d5dca29df..005642c7007d 100644
  	skb_copy_hash(to, from);
  
 diff --git a/net/ipv6/ip6_tunnel.c b/net/ipv6/ip6_tunnel.c
-index 69cace90ece1..9a5668bee940 100644
 --- a/net/ipv6/ip6_tunnel.c
 +++ b/net/ipv6/ip6_tunnel.c
 @@ -19,6 +19,7 @@
@@ -694,7 +666,7 @@ index 69cace90ece1..9a5668bee940 100644
  #include <linux/sockios.h>
  #include <linux/icmp.h>
  #include <linux/if.h>
-@@ -74,6 +75,505 @@ static u32 HASH(const struct in6_addr *addr1, const struct in6_addr *addr2)
+@@ -76,6 +77,505 @@ static u32 HASH(const struct in6_addr *a
  	return hash_32(hash, IP6_TUNNEL_HASH_SIZE_SHIFT);
  }
  
@@ -1200,7 +1172,7 @@ index 69cace90ece1..9a5668bee940 100644
  static int ip6_tnl_dev_init(struct net_device *dev);
  static void ip6_tnl_dev_setup(struct net_device *dev);
  static struct rtnl_link_ops ip6_link_ops __read_mostly;
-@@ -94,8 +594,10 @@ static inline int ip6_tnl_mpls_supported(void)
+@@ -96,8 +596,10 @@ static inline int ip6_tnl_mpls_supported
  	return IS_ENABLED(CONFIG_MPLS);
  }
  
@@ -1211,7 +1183,7 @@ index 69cace90ece1..9a5668bee940 100644
  
  /**
   * ip6_tnl_lookup - fetch tunnel matching the end-point addresses
-@@ -870,6 +1372,11 @@ static int __ip6_tnl_rcv(struct ip6_tnl *tunnel, struct sk_buff *skb,
+@@ -875,6 +1377,11 @@ static int __ip6_tnl_rcv(struct ip6_tnl
  		}
  	}
  
@@ -1223,7 +1195,7 @@ index 69cace90ece1..9a5668bee940 100644
  	dev_sw_netstats_rx_add(tunnel->dev, skb->len);
  
  	skb_scrub_packet(skb, !net_eq(tunnel->net, dev_net(tunnel->dev)));
-@@ -1194,10 +1701,27 @@ int ip6_tnl_xmit(struct sk_buff *skb, struct net_device *dev, __u8 dsfield,
+@@ -1201,10 +1708,27 @@ route_lookup:
  		       IPV6_MIN_MTU : IPV4_MIN_MTU);
  
  	skb_dst_update_pmtu_no_confirm(skb, mtu);
@@ -1255,7 +1227,7 @@ index 69cace90ece1..9a5668bee940 100644
  	}
  
  	if (t->err_count > 0) {
-@@ -1395,6 +1919,12 @@ ipxip6_tnl_xmit(struct sk_buff *skb, struct net_device *dev,
+@@ -1402,6 +1926,12 @@ ipxip6_tnl_xmit(struct sk_buff *skb, str
  
  	skb_set_inner_ipproto(skb, protocol);
  
@@ -1268,7 +1240,7 @@ index 69cace90ece1..9a5668bee940 100644
  	err = ip6_tnl_xmit(skb, dev, dsfield, &fl6, encap_limit, &mtu,
  			   protocol);
  	if (err != 0) {
-@@ -1429,6 +1959,10 @@ ip6_tnl_start_xmit(struct sk_buff *skb, struct net_device *dev)
+@@ -1436,6 +1966,10 @@ ip6_tnl_start_xmit(struct sk_buff *skb,
  
  	switch (skb->protocol) {
  	case htons(ETH_P_IP):
@@ -1279,7 +1251,7 @@ index 69cace90ece1..9a5668bee940 100644
  		ipproto = IPPROTO_IPIP;
  		break;
  	case htons(ETH_P_IPV6):
-@@ -1633,6 +2167,10 @@ ip6_tnl_siocdevprivate(struct net_device *dev, struct ifreq *ifr,
+@@ -1651,6 +2185,10 @@ ip6_tnl_siocdevprivate(struct net_device
  	struct ip6_tnl *t = netdev_priv(dev);
  	struct net *net = t->net;
  	struct ip6_tnl_net *ip6n = net_generic(net, ip6_tnl_net_id);
@@ -1290,7 +1262,7 @@ index 69cace90ece1..9a5668bee940 100644
  
  	memset(&p1, 0, sizeof(p1));
  
-@@ -1713,9 +2251,120 @@ ip6_tnl_siocdevprivate(struct net_device *dev, struct ifreq *ifr,
+@@ -1731,9 +2269,120 @@ ip6_tnl_siocdevprivate(struct net_device
  		err = 0;
  		unregister_netdevice(dev);
  		break;
@@ -1411,7 +1383,7 @@ index 69cace90ece1..9a5668bee940 100644
  	return err;
  }
  
-@@ -2316,9 +2965,24 @@ static int __init ip6_tunnel_init(void)
+@@ -2344,9 +2993,24 @@ static int __init ip6_tunnel_init(void)
  	if (!ipv6_mod_enabled())
  		return -EOPNOTSUPP;
  
@@ -1436,7 +1408,7 @@ index 69cace90ece1..9a5668bee940 100644
  
  	err = xfrm6_tunnel_register(&ip4ip6_handler, AF_INET);
  	if (err < 0) {
-@@ -2355,6 +3019,10 @@ static int __init ip6_tunnel_init(void)
+@@ -2383,6 +3047,10 @@ out_ip6ip6:
  	xfrm6_tunnel_deregister(&ip4ip6_handler, AF_INET);
  out_ip4ip6:
  	unregister_pernet_device(&ip6_tnl_net_ops);
@@ -1448,7 +1420,6 @@ index 69cace90ece1..9a5668bee940 100644
  	return err;
  }
 diff --git a/net/ipv6/netfilter/ip6t_NPT.c b/net/ipv6/netfilter/ip6t_NPT.c
-index 787c74aa85e3..f523f471722a 100644
 --- a/net/ipv6/netfilter/ip6t_NPT.c
 +++ b/net/ipv6/netfilter/ip6t_NPT.c
 @@ -11,6 +11,9 @@
@@ -1461,7 +1432,7 @@ index 787c74aa85e3..f523f471722a 100644
  
  static int ip6t_npt_checkentry(const struct xt_tgchk_param *par)
  {
-@@ -114,6 +117,19 @@ ip6t_snpt_tg(struct sk_buff *skb, const struct xt_action_param *par)
+@@ -114,6 +117,19 @@ ip6t_snpt_tg(struct sk_buff *skb, const
  			ip6t_npt_map_pfx(npt, &bounced_hdr->daddr);
  	}
  
@@ -1481,7 +1452,7 @@ index 787c74aa85e3..f523f471722a 100644
  	return XT_CONTINUE;
  }
  
-@@ -139,6 +155,19 @@ ip6t_dnpt_tg(struct sk_buff *skb, const struct xt_action_param *par)
+@@ -139,6 +155,19 @@ ip6t_dnpt_tg(struct sk_buff *skb, const
  			ip6t_npt_map_pfx(npt, &bounced_hdr->saddr);
  	}
  
@@ -1502,10 +1473,9 @@ index 787c74aa85e3..f523f471722a 100644
  }
  
 diff --git a/net/ipv6/output_core.c b/net/ipv6/output_core.c
-index b5205311f372..a63725d4d294 100644
 --- a/net/ipv6/output_core.c
 +++ b/net/ipv6/output_core.c
-@@ -128,7 +128,18 @@ int __ip6_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
+@@ -130,7 +130,18 @@ int __ip6_local_out(struct net *net, str
  	len = skb->len - sizeof(struct ipv6hdr);
  	if (len > IPV6_MAXPLEN)
  		len = 0;
@@ -1524,7 +1494,7 @@ index b5205311f372..a63725d4d294 100644
  	IP6CB(skb)->nhoff = offsetof(struct ipv6hdr, nexthdr);
  
  	/* if egress device is enslaved to an L3 master device pass the
-@@ -140,6 +151,14 @@ int __ip6_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
+@@ -142,6 +153,14 @@ int __ip6_local_out(struct net *net, str
  
  	skb->protocol = htons(ETH_P_IPV6);
  
@@ -1537,13 +1507,12 @@ index b5205311f372..a63725d4d294 100644
 +	else
 +#endif
  	return nf_hook(NFPROTO_IPV6, NF_INET_LOCAL_OUT,
- 		       net, sk, skb, NULL, skb_dst(skb)->dev,
+ 		       net, sk, skb, NULL, skb_dst_dev(skb),
  		       dst_output);
 diff --git a/net/ipv6/sit.c b/net/ipv6/sit.c
-index eb4c8e2a2b12..941dbcdb6bd3 100644
 --- a/net/ipv6/sit.c
 +++ b/net/ipv6/sit.c
-@@ -691,6 +691,9 @@ static int ipip6_rcv(struct sk_buff *skb)
+@@ -694,6 +694,9 @@ static int ipip6_rcv(struct sk_buff *skb
  		skb->mac_header = skb->network_header;
  		skb_reset_network_header(skb);
  		IPCB(skb)->flags = 0;
@@ -1554,10 +1523,9 @@ index eb4c8e2a2b12..941dbcdb6bd3 100644
  
  		if (packet_is_spoofed(skb, iph, tunnel)) {
 diff --git a/net/ipv6/udp.c b/net/ipv6/udp.c
-index 6df2459f2561..5c8f7c4c306e 100644
 --- a/net/ipv6/udp.c
 +++ b/net/ipv6/udp.c
-@@ -737,7 +737,6 @@ static int udpv6_queue_rcv_one_skb(struct sock *sk, struct sk_buff *skb)
+@@ -871,7 +871,6 @@ static int udpv6_queue_rcv_one_skb(struc
  
  		/* FALLTHROUGH -- it's a UDP Packet */
  	}

@@ -1,5 +1,25 @@
+Subject: wireless-extensions: force WIRELESS_EXT/WEXT_PRIV on, restore ndo_do_ioctl fallback
+
+ASK userspace tools (cmm, fmc, dpa_app) and several legacy ioctls
+issued by VyOS userspace use SIOCSIWxxx wireless-extension ioctls as
+a generic netdev escape hatch even on non-wireless interfaces. The
+upstream defaults leave WIRELESS_EXT and WEXT_PRIV unconditionally off
+on builds without a wireless driver, and wireless_process_ioctl()
+returns -EOPNOTSUPP without consulting the netdev's ndo_do_ioctl.
+
+This patch:
+  - flips WIRELESS_EXT and WEXT_PRIV to def_bool y so the wext core is
+    always linked in (we have no wireless drivers, but we keep the ABI),
+  - adds a fallback in wireless_process_ioctl() that calls the driver's
+    ndo_do_ioctl handler before giving up with -EOPNOTSUPP.
+
+Refreshed for Linux 6.18.x:
+  - WEXT_SPY symbol was removed upstream; the historic hunk that flipped
+    it to def_bool y is no longer applicable.
+  - wext-core.c::wireless_process_ioctl() context shifted (the function
+    moved from ~L984 to ~L943 between 6.6 and 6.18); hunk re-anchored.
+
 diff --git a/net/wireless/Kconfig b/net/wireless/Kconfig
-index f620acd2a0f5..3d3c91ed1932 100644
 --- a/net/wireless/Kconfig
 +++ b/net/wireless/Kconfig
 @@ -1,6 +1,6 @@
@@ -10,12 +30,8 @@ index f620acd2a0f5..3d3c91ed1932 100644
  
  config WEXT_CORE
  	def_bool y
-@@ -12,10 +12,10 @@ config WEXT_PROC
+@@ -13,7 +13,7 @@ config WEXT_PROC
  	depends on WEXT_CORE
- 
- config WEXT_SPY
--	bool
-+	def_bool y
  
  config WEXT_PRIV
 -	bool
@@ -24,10 +40,9 @@ index f620acd2a0f5..3d3c91ed1932 100644
  config CFG80211
  	tristate "cfg80211 - wireless configuration API"
 diff --git a/net/wireless/wext-core.c b/net/wireless/wext-core.c
-index 73a29ee3eff2..df9477c05485 100644
 --- a/net/wireless/wext-core.c
 +++ b/net/wireless/wext-core.c
-@@ -984,6 +984,9 @@ static int wireless_process_ioctl(struct net *net, struct iwreq *iwr,
+@@ -980,6 +980,9 @@ static int wireless_process_ioctl(struct net *net, struct iwreq *iwr,
  		else if (private)
  			return private(dev, iwr, cmd, info, handler);
  	}
