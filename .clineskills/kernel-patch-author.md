@@ -8,7 +8,7 @@ A change to the Linux 6.6.137 source tree must be persisted as a patch. Use this
 
 Do NOT use this skill for:
 - Defconfig changes (those go in `release/vyos-base/*.config` or `release/ask.config` — see `.clinerules/30-kconfig-defconfig.md`).
-- Verbatim NXP SDK source drops (those go under `release/patches/kernel/sdk-sources/<mirrored-path>` — use the `sdk-source-drop` skill instead).
+- Verbatim NXP SDK source drops (those go under `release/patches/kernel/sdk-sources/<mirrored-path>` — edit in-tree under the ask26+ direct-edit policy; see `.clinerules/20-sdk-driver-rules.md`).
 
 ## Inputs the agent must collect first
 
@@ -67,9 +67,9 @@ $EDITOR release/patches/<bucket>/<NNN>-<short-slug>.patch
 rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
 bash scripts/patch-health.sh --source release
 # Required output:
-#   Pass: 13   Fail: 0
+#   Pass: 17   Fail: 0
 #   0 SDK conflicts
-#   264 files to install
+#   266 files to install
 
 # 6. Visual hunk verification — defeat silent truncation (ask13 → ask14)
 patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/<NNN>-<short-slug>.patch
@@ -83,7 +83,7 @@ git add release/patches/<bucket>/<NNN>-<short-slug>.patch
 git commit -m "<bucket>: <one-line summary>"
 ```
 
-If the new patch adds a persistent patch (raises the `Pass:` count), update the `Pass: 13` invariant in `.clinerules/50-thresholds-are-authoritative.md` in the SAME commit (or a `docs:` commit on top of it), with a note explaining why.
+If the new patch adds a persistent patch (raises the `Pass:` count), update the `Pass: 17` invariant in `.clinerules/50-thresholds-are-authoritative.md` in the SAME commit (or a `docs:` commit on top of it), with a note explaining why.
 
 ## Hunk-header arithmetic checklist
 
@@ -100,7 +100,7 @@ The `patch-hunk-validator` hook in `.clinehooks/` flags mismatches; treat any wa
 A successfully authored patch satisfies ALL of:
 
 1. Lives under `release/patches/<bucket>/<NNN>-<slug>.patch` with monotonically next prefix.
-2. `scripts/patch-health.sh --source release` reports `Pass: 13  Fail: 0`, `0 SDK conflicts`, `264 files to install` (or the new agreed-upon thresholds, called out explicitly in the commit body).
+2. `scripts/patch-health.sh --source release` reports `Pass: 17  Fail: 0`, `0 SDK conflicts`, `266 files to install` (or the new agreed-upon thresholds, called out explicitly in the commit body).
 3. `.clinehooks/patch-hunk-validator.sh` reports zero issues for the new file.
 4. Visual `grep` confirms post-patch content is present in `work/linux-6.6.137/<target-file>`.
 5. Commit message uses the correct prefix (`ask:|vyos:|fixes:|sdk:|...`) and contains one logical change.

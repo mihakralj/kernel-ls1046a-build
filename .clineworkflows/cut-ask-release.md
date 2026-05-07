@@ -35,10 +35,11 @@ Pick the route that matches your change:
   ```
 - Numbering ranges: `vyos/` 001..009, `ask/` 010..080, `fixes/` 090+.
 
-### 1c. SDK source refresh (`release/patches/kernel/sdk-sources/`)
-- Drop the new files in mirrored paths.
-- Update the expected `266 files to install` count if it changes — and call
-  it out in the commit body.
+### 1c. SDK source direct edit (`release/patches/kernel/sdk-sources/`)
+- Edit files in-place under `release/patches/kernel/sdk-sources/<mirrored-path>`.
+- Annotate every change with `/* ASK-edit (askNN): <rationale> */` immediately above the changed line/block.
+- Commit prefix: `sdk-edits:` (distinct from `sdk:` for verbatim re-imports).
+- Update the expected `266 files to install` count only if files are added/removed — call it out explicitly in the commit body.
 
 ## 2. Validate (mandatory, every iteration)
 
@@ -49,7 +50,7 @@ bash scripts/patch-health.sh --source release
 
 Required output:
 ```
-Pass: 15   Fail: 0
+Pass: 17   Fail: 0
 0 SDK conflicts (266 files to install)
 ```
 
@@ -60,6 +61,12 @@ verify the affected file(s):
 ```bash
 patch -p1 -d work/linux-6.6.137 < release/patches/<bucket>/<patch>
 grep -n '<expected-content>' work/linux-6.6.137/<patched-file>
+```
+
+Run the hunk validator on any patch you authored or edited:
+
+```bash
+.clinehooks/patch-hunk-validator.sh release/patches/<bucket>/<patch>
 ```
 
 If your change touched defconfig fragments, also surface the diff:
@@ -81,7 +88,8 @@ One logical change per commit. Subject prefix from the matrix in
 | `release/patches/ask/` | `ask:` |
 | `release/patches/vyos/`, `release/vyos-base/` | `vyos:` |
 | `release/patches/fixes/` | `fixes:` |
-| `release/patches/kernel/sdk-sources/` | `sdk:` |
+| `release/patches/kernel/sdk-sources/` (verbatim re-import) | `sdk:` |
+| `release/patches/kernel/sdk-sources/` (direct edit) | `sdk-edits:` |
 | `scripts/` | `scripts:` |
 | `.github/workflows/` | `ci:` |
 | Markdown / `.clinerules/` | `docs:` |
@@ -105,7 +113,7 @@ git push origin kernel-6.6.137-askN
 - `--follow-tags`
 - two distinct `kernel-*` tags
 
-The pre-push git hook (`.clinehooks/block-dual-ref-push.sh`) will reject these.
+The pre-push hook (`.clinehooks/block-dual-ref-push.sh`) will reject these.
 
 ## 6. Watch CI
 
@@ -145,6 +153,9 @@ bash scripts/patch-health.sh --source release
 ( cd work/linux-6.6.137 && git diff --no-prefix ) \
   | awk -f scripts/normalize-patch.awk \
   > release/patches/ask/0X0-my-change.patch
+
+# Audit ASK-edit markers in SDK source tree
+grep -rln 'ASK-edit' release/patches/kernel/sdk-sources/
 
 # Tag-only release push
 git tag kernel-6.6.137-askN && git push origin kernel-6.6.137-askN

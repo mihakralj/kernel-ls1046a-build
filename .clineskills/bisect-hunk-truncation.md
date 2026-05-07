@@ -7,7 +7,7 @@ Diagnose and isolate the **silent hunk-truncation** failure mode that produced t
 Use this skill when:
 
 - A producer build is green but the resulting kernel misbehaves at runtime / boot.
-- `patch-health.sh` is `Pass: 13  Fail: 0` yet a recently-edited patch is suspect.
+- `patch-health.sh` is `Pass: 17  Fail: 0` yet a recently-edited patch is suspect.
 - You need to audit the entire patch set after a manual hunk edit.
 
 ## Stage 0 — fast scan with the validator hook
@@ -90,7 +90,7 @@ Edit only the header. **Do not** add or remove body lines to "match" the wrong h
 ```bash
 .clinehooks/patch-hunk-validator.sh "$SUSPECT"           # zero issues
 rm -rf work/linux-6.6.137 && tar -xf work/linux-6.6.137.tar.xz -C work/
-bash scripts/patch-health.sh --source release            # Pass:13 Fail:0
+bash scripts/patch-health.sh --source release            # Pass:17 Fail:0
 patch -p1 -d work/linux-6.6.137 < "$SUSPECT"
 grep -n '<expected-content>' work/linux-6.6.137/<file>   # all expected lines present
 ```
@@ -120,6 +120,6 @@ A successful bisect-hunk-truncation pass produces:
 1. The exact offending `release/patches/<bucket>/NNN-…patch` and line range.
 2. Header arithmetic that previously failed and now passes.
 3. A clean `.clinehooks/patch-hunk-validator.sh` (zero output).
-4. A green `scripts/patch-health.sh --source release` (`Pass: 13 Fail: 0`, `0 SDK conflicts`, `264 files to install`).
+4. A green `scripts/patch-health.sh --source release` (`Pass: 17 Fail: 0`, `0 SDK conflicts`, `266 files to install`).
 5. A `grep` confirmation that every `+`-line from the patch body is present in `work/linux-6.6.137/<target-file>` post-apply.
 6. A commit with prefix matching the bucket (`ask:` / `vyos:` / `fixes:`) and a body referencing the truncation symptom and the corrected counts.
