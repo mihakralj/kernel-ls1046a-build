@@ -53,6 +53,19 @@
 #include "control_tx.h"
 #include "procfs.h"
 
+/* ASK-edit (mainline-6.18-port): no-op stubs for lf-6.12.y fast-path stats
+ * register/deregister hooks absent in mainline 6.18.  These were exported
+ * by an out-of-tree NXP kernel patch (dev_fp_stats_get_register/_deregister
+ * in include/linux/netdevice.h) that lf-6.6.y carried via SDK_DPAA but
+ * mainline 6.18 does not.  The OOT module's `linux stats` shim runs only
+ * on user request (cdx_ifstats_get ioctl) and is not on the boot/cmm path.
+ */
+typedef int (*ask_fp_stats_cb_t)(void *);
+static inline int dev_fp_stats_get_register(ask_fp_stats_cb_t cb)
+{ (void)cb; return 0; }
+static inline int dev_fp_stats_get_deregister(void)
+{ return 0; }
+
 //#define DEVMAN_DEBUG	1
 
 #define NULL_MAC_ADDR(mac) (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5] )

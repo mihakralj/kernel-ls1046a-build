@@ -19,6 +19,16 @@
 #include "cdx_ceetm_gdef.h"
 #include "cdx_common.h"
 
+/* ASK-edit (mainline-6.18-port): no-op stubs for lf-6.12.y CEETM helpers
+ * absent in mainline 6.18.  Same pattern as historical ask14 stub block —
+ * CEETM TX-QoS shaping is not on the boot/cmm path, no other cdx TUs
+ * reference these symbols (verified via grep across the cdx tree).
+ */
+static inline int dpa_register_ceetm_get_egress_fq(void *a, void *b)
+{ (void)a; (void)b; return 0; }
+static inline int dpa_enable_ceetm(void *net_dev)
+{ (void)net_dev; return 0; }
+
 static struct ceetm_chnl_info qm_chnl_info[CDX_CEETM_MAX_CHANNELS];
 
 

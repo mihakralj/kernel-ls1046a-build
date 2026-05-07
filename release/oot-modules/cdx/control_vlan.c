@@ -112,9 +112,13 @@ static U16 Vlan_handle_entry(U16 * p,U16 Length)
 			break;
 
 found:
-			if (device)
-				device->wifi_offload_dev = NULL;
-			vlan_remove(pEntry);
+/* ASK-edit (mainline-6.18-port): struct net_device::wifi_offload_dev is a
+ * downstream NXP wifi-offload field absent in mainline 6.18.  This board
+ * does not use the wifi-offload data path; clearing/inheriting the field
+ * is a no-op.  Original was: device->wifi_offload_dev = NULL; */
+if (device)
+{ /* wifi_offload_dev = NULL — field absent on mainline 6.18 */ }
+vlan_remove(pEntry);
 			vlan_free(pEntry);
 			break;
 
@@ -175,10 +179,13 @@ found:
 				break;
 			}
 
-			if(parent_device->wifi_offload_dev)
-				device->wifi_offload_dev = parent_device->wifi_offload_dev;
+/* ASK-edit (mainline-6.18-port): wifi_offload_dev is an NXP downstream
+ * net_device field absent in mainline 6.18.  Original was:
+ *   if (parent_device->wifi_offload_dev)
+ *           device->wifi_offload_dev = parent_device->wifi_offload_dev;
+ * No-op replacement — wifi-offload data path not used on this board. */
 
-			vlan_add(pEntry);
+vlan_add(pEntry);
 
 			break;
 
