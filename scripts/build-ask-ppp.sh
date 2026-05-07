@@ -66,6 +66,10 @@ host_arch=$(dpkg --print-architecture)
 [[ "$host_arch" == "$TARGET_ARCH" ]] \
     || err "this script is arm64-native; host=$host_arch, target=$TARGET_ARCH"
 
+setup_ccache
+[[ "${CCACHE_ENABLED:-0}" == "1" ]] && \
+    dim "ccache: $(ccache --version | head -1) (PATH-shimmed for dpkg-buildpackage)"
+
 # ── Resolve in-tree userspace patches ─────────────────────────────────
 #
 # Post-redistribution (2026-05-05): the ppp / rp-pppoe quilt-style

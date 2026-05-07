@@ -90,6 +90,11 @@ dim "   localversion:  $LOCALVERSION"
 dim "   pkgversion:    $KDEB_PKGVERSION"
 dim "   log:           $LOG"
 
+setup_ccache
+if [[ "${CCACHE_ENABLED:-0}" == "1" ]]; then
+    dim "   ccache:        $(ccache --version | head -1) (dir=$CCACHE_DIR max=$CCACHE_MAXSIZE)"
+fi
+
 # ── Build ───────────────────────────────────────────────────────────────
 export ARCH LOCALVERSION KDEB_PKGVERSION
 START=$(date +%s)
@@ -97,7 +102,7 @@ START=$(date +%s)
 set +e
 (
     cd "$KDIR" \
-        && make -j"$JOBS" "$TARGET" 2>&1
+        && make -j"$JOBS" "${CCACHE_MAKE_ARGS[@]}" "$TARGET" 2>&1
 ) | tee "$LOG"
 RC=${PIPESTATUS[0]}
 set -e
@@ -140,6 +145,7 @@ esac
 
 echo
 ok "build complete in ${ELAPSED}s"
+ccache_status_line
 if [[ "$TARGET" == "bindeb-pkg" || "$TARGET" == "deb-pkg" ]]; then
     echo
     info "installable packages:"

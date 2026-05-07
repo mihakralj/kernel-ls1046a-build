@@ -200,6 +200,12 @@ COMMON_MAKE=(
     "KERNEL_SRC=$KDIR"
 )
 
+setup_ccache
+if [[ "${CCACHE_ENABLED:-0}" == "1" ]]; then
+    dim "ccache: $(ccache --version | head -1) (dir=$CCACHE_DIR max=$CCACHE_MAXSIZE)"
+    COMMON_MAKE+=( "${CCACHE_MAKE_ARGS[@]}" )
+fi
+
 build_mod() {
     local name="$1"
     local dir="$SRC_ROOT/$name"
@@ -406,3 +412,4 @@ for m in "${MODS[@]}"; do
     printf '     /lib/modules/%s/extra/ask/%s.ko (%s)\n' \
         "$KRELEASE" "$m" "$(du -h "$BUILD_ROOT/${m}.ko" | cut -f1)"
 done
+ccache_status_line
