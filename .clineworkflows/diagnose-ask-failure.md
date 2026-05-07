@@ -20,7 +20,7 @@ Ask for / collect:
 | Chain-1 (this repo) | Chain-2 (consumer) |
 |---|---|
 | `cmm process running [FAILED]`<br>`cmm.service active [FAILED]`<br>`cmmCtInit:NNNN fci_open() failed, Protocol not supported`<br>missing proto 32 in `/proc/net/netlink` | `dpa_app applied PCD configuration (failed rc=65280)`<br>`BMan fragment buffer pool located by CDX [FAILED]`<br>`fm_cc.c:NNNN AllocStatsObjs Memory Allocation Failed`<br>`no ASK driver probe/init/bind failures (≥1 hit(s))` |
-| **Routes to:** `lts_6.6_ls1046a` (this repo) | **Routes to:** `vyos-ls1046a-build` (consumer) |
+| **Routes to:** `kernel-ls1046a-build` (this repo) | **Routes to:** `vyos-ls1046a-build` (consumer) |
 | Fix surface: defconfig fragment, `fixes/` patch, or SDK drop | Fix surface: rebuild `fmc` with `external`/`aging` support, or trim `cdx_pcd.xml` budget |
 
 The chains are independent. A single device may show both, but each gets

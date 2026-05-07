@@ -1,6 +1,6 @@
 # Rule: Shared Cobalt 100 VM Runtime (A+B Pattern)
 
-The producer (`lts_6.6_ls1046a` → `.github/workflows/build-and-release.yml`) and the consumer (`vyos-ls1046a-build` → `.github/workflows/self-hosted-build.yml`) share **one** Azure ARM64 Cobalt 100 VM. The cost / coordination problem is solved by two cooperating mechanisms — there is no operator-side mutex.
+The producer (`kernel-ls1046a-build` → `.github/workflows/build-and-release.yml`) and the consumer (`vyos-ls1046a-build` → `.github/workflows/self-hosted-build.yml`) share **one** Azure ARM64 Cobalt 100 VM. The cost / coordination problem is solved by two cooperating mechanisms — there is no operator-side mutex.
 
 ## Pattern A — Idle-deallocator on the VM (NOT in CI)
 
@@ -78,7 +78,7 @@ Two `actions-runner` services run on the VM, each with its own work directory an
 
 | Runner name | Repo it serves | Labels | Install dir | systemd unit |
 |---|---|---|---|---|
-| `lts-build-runner` | `lts_6.6_ls1046a` | `self-hosted, Linux, ARM64` (matches producer's `runs-on: self-hosted`) | `/home/vyos/actions-runner-lts/` | `actions.runner.mihakralj-lts_6.6_ls1046a.lts-build-runner.service` |
+| `lts-build-runner` | `kernel-ls1046a-build` | `self-hosted, Linux, ARM64` (matches producer's `runs-on: self-hosted`) | `/home/vyos/actions-runner-lts/` | `actions.runner.mihakralj-kernel-ls1046a-build.lts-build-runner.service` |
 | `arm64-runner` | `vyos-ls1046a-build` | `self-hosted, Linux, ARM64` (matches consumer's `runs-on: ARM64`) | `/home/vyos/actions-runner/` | `actions.runner.mihakralj-vyos-ls1046a-build.arm64-runner.service` |
 
 Both runners run as systemd services owned by user `vyos`. Their `_work` directories live inside their respective install dirs (`/home/vyos/actions-runner-lts/_work/`, `/home/vyos/actions-runner/_work/`) and are therefore already runner-namespaced.

@@ -1,4 +1,4 @@
-# lts_6.6_ls1046a
+# kernel-ls1046a-build
 
 > Producer of the **ASK kernel** for NXP LS1046A boards: Linux 6.6.137 LTS + VyOS deltas + NXP SDK DPAA / FMan / QBMan drivers + ASK fast-path hooks. Publishes per-tag GitHub Releases that the consumer [`vyos-ls1046a-build`](https://github.com/mihakralj/vyos-ls1046a-build) pins against.
 
@@ -13,7 +13,7 @@ The current released kernel is **`kernel-6.6.137-ask31`** (the askN counter rese
 ## Repo layout (source of truth)
 
 ```text
-lts_6.6_ls1046a/
+kernel-ls1046a-build/
 ├── release/                              # what the kernel build consumes
 │   ├── patches/
 │   │   ├── vyos/    (3 patches)          # VyOS deltas, applied first
@@ -159,7 +159,7 @@ Full diagnostic checklists per chain live in [`AGENTS.md`](./AGENTS.md#two-chain
 
 ```bash
 KERNEL_TAG="kernel-6.6.137-ask31"
-gh release download -R mihakralj/lts_6.6_ls1046a "$KERNEL_TAG" \
+gh release download -R mihakralj/kernel-ls1046a-build "$KERNEL_TAG" \
   --pattern 'linux-*.deb' \
   --pattern 'ask-modules-*.deb' \
   --pattern 'iptables_*.deb' \

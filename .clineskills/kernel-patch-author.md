@@ -1,6 +1,6 @@
 # Skill: kernel-patch-author
 
-Authoring a new kernel patch for the `lts_6.6_ls1046a` producer repo, end-to-end, while staying inside the invariants defined in `.clinerules/{10-patch-authoring,20-sdk-driver-rules,30-kconfig-defconfig,50-thresholds-are-authoritative,60-tooling-paths}.md`.
+Authoring a new kernel patch for the `kernel-ls1046a-build` producer repo, end-to-end, while staying inside the invariants defined in `.clinerules/{10-patch-authoring,20-sdk-driver-rules,30-kconfig-defconfig,50-thresholds-are-authoritative,60-tooling-paths}.md`.
 
 ## When to use
 

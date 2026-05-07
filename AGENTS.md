@@ -1,4 +1,4 @@
-# lts_6.6_ls1046a — Agent Rules
+# kernel-ls1046a-build — Agent Rules
 
 Producer repo for the ASK kernel (`kernel-6.6.137-askN`). Builds Linux 6.6.137 + VyOS patches + NXP SDK DPAA/FMan/QBMan drivers and publishes a GitHub Release for the consumer `vyos-ls1046a-build` to pin against.
 

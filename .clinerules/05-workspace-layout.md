@@ -4,12 +4,12 @@ This VS Code workspace contains **two sibling repositories** that together imple
 
 | Path | Role | Branch | Publishes |
 |---|---|---|---|
-| `/root/lts_6.6_ls1046a` (this repo) | **Producer** — Linux 6.6.137 + VyOS + NXP SDK DPAA/FMan/QBMan kernel | `lts-6.6-ls1046a` | `kernel-6.6.137-askN` GitHub Releases (kernel tarball, headers, modules) |
+| `/root/kernel-ls1046a-build` (this repo) | **Producer** — Linux 6.6.137 + VyOS + NXP SDK DPAA/FMan/QBMan kernel | `lts-6.6-ls1046a` | `kernel-6.6.137-askN` GitHub Releases (kernel tarball, headers, modules) |
 | `/root/vyos-ls1046a-build` | **Consumer** — VyOS ARM64 ISO/image builder, ASK userspace, FMan PCD config, DPDK/VPP integration | `main` | VyOS ISO + eMMC image |
 
 The consumer pins a specific producer release via `vyos-ls1046a-build/data/ask-kernel.pin`. CI in the consumer downloads the kernel artifacts from the pinned `kernel-6.6.137-askN` tag.
 
-## When you are working in `lts_6.6_ls1046a` (this repo)
+## When you are working in `kernel-ls1046a-build` (this repo)
 
 The `.clinerules/` files numbered `00..60` apply. Scope is strictly:
 
@@ -37,7 +37,7 @@ That repo has its own `AGENTS.md` (very large — covers DPAA1, VPP, AF_XDP, DPD
 
 Boot-time `ask-check` failures collapse into two **independent** chains. Routing the symptom to the correct repo is mandatory before making any change.
 
-### Chain 1 — kernel-side → fix in `/root/lts_6.6_ls1046a` (this repo)
+### Chain 1 — kernel-side → fix in `/root/kernel-ls1046a-build` (this repo)
 
 Symptoms:
 - `cmm process running [FAILED]`, `cmm.service active [FAILED]`
@@ -67,7 +67,7 @@ Symptoms (canonical signature from boot log):
 - VyOS image install / `vyos-postinstall` / U-Boot env / boot.scr / `vyos.env`
 - Migration scripts, configd caching, `is_live_boot()`, kexec managed-params
 
-Routing: switch to `/root/vyos-ls1046a-build`, follow that repo's `AGENTS.md`, edit there, push there. **Do not commit a producer-side change in `lts_6.6_ls1046a` to mask a Chain-2 symptom**, even if the kernel is the component reporting the error — the kernel is doing its job correctly when MURAM is exhausted by an oversized `cdx_pcd.xml` or when `dpa_app` SIGSEGVs from a stale `libfm.a`/`libfmc.a`.
+Routing: switch to `/root/vyos-ls1046a-build`, follow that repo's `AGENTS.md`, edit there, push there. **Do not commit a producer-side change in `kernel-ls1046a-build` to mask a Chain-2 symptom**, even if the kernel is the component reporting the error — the kernel is doing its job correctly when MURAM is exhausted by an oversized `cdx_pcd.xml` or when `dpa_app` SIGSEGVs from a stale `libfm.a`/`libfmc.a`.
 
 ## Working across both repos in one workspace
 
@@ -80,10 +80,10 @@ read /root/vyos-ls1046a-build/AGENTS.md
 git -C /root/vyos-ls1046a-build status
 ```
 
-When you make edits, keep the **commit boundary aligned with the repo whose files changed** — never stage or commit producer files (`/root/lts_6.6_ls1046a/...`) and consumer files (`/root/vyos-ls1046a-build/...`) in the same commit. They belong to two independent histories with different remotes, branches, and CI.
+When you make edits, keep the **commit boundary aligned with the repo whose files changed** — never stage or commit producer files (`/root/kernel-ls1046a-build/...`) and consumer files (`/root/vyos-ls1046a-build/...`) in the same commit. They belong to two independent histories with different remotes, branches, and CI.
 
 When you push, follow each repo's own discipline:
-- This repo (`lts_6.6_ls1046a`): see `00-tag-discipline.md` — tag-only pushes for releases, never branch+tag in the same `git push`.
+- This repo (`kernel-ls1046a-build`): see `00-tag-discipline.md` — tag-only pushes for releases, never branch+tag in the same `git push`.
 - Consumer repo: see its own `AGENTS.md` — `main` only, no auto-push, dispatch `self-hosted-build.yml` for CI.
 
 ## The pin file
@@ -113,9 +113,9 @@ Cross-repo routing for **OOT-module / userspace-source** changes:
 ## Forbidden cross-repo anti-patterns
 
 1. Mixing producer and consumer file changes in a single commit.
-2. Re-cutting a `kernel-6.6.137-askN` tag in `lts_6.6_ls1046a` to "fix" a Chain-2 symptom that the consumer should handle (wastes ~22 min ARM64 CI minutes per occurrence — see `00-tag-discipline.md`).
+2. Re-cutting a `kernel-6.6.137-askN` tag in `kernel-ls1046a-build` to "fix" a Chain-2 symptom that the consumer should handle (wastes ~22 min ARM64 CI minutes per occurrence — see `00-tag-discipline.md`).
 3. Mirroring or copy-pasting the consumer's `AGENTS.md` into this repo's `AGENTS.md` — they have intentionally different scopes.
-4. Adding a `data/ask-kernel.pin` file to `lts_6.6_ls1046a` (it lives only in the consumer).
+4. Adding a `data/ask-kernel.pin` file to `kernel-ls1046a-build` (it lives only in the consumer).
 5. Bumping `data/ask-kernel.pin` to a producer tag that has not actually been published as a GitHub Release.
 6. Re-introducing a parallel quilt-style patch stack on top of `release/oot-modules/` or `release/userspace-patches/` (or the consumer-side `ASK/`). Audits land as direct edits with marker comments per the ask26+ direct-edit policy.
 7. Re-cloning the now-archived `mihakralj/ask-ls1046a-6.6` repo at build time. The producer is fully self-contained; if a build script touches `git clone` against that URL, it is wrong.
