@@ -24,54 +24,10 @@ permissions:
   contents: write
 
 jobs:
-  # ── STEP 1: Power on the Azure ARM64 VM ──────────────────────────
-  start-vm:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Azure Login
-        uses: azure/login@v3
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Start VM
-        run: |
-          az vm start \
-            --resource-group arm64-runner-group \
-            --name arm64-runner
-
-      - name: Wait for self-hosted runner
-        env:
-          GH_TOKEN: ${{ secrets.RUNNER_PAT || secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          # Ensure this matches the --labels you gave your second runner
-          RUNNER_LABEL: self-hosted 
-        run: |
-          probe=$(gh api "repos/${GH_REPO}/actions/runners" 2>&1 || true)
-          if echo "$probe" | grep -q '"runners"'; then
-            echo "Polling runner status..."
-            deadline=$(( $(date +%s) + 300 ))
-            while [ "$(date +%s)" -lt "$deadline" ]; do
-              status=$(gh api "repos/${GH_REPO}/actions/runners" \
-                --jq ".runners[] | select(.labels[].name==\"${RUNNER_LABEL}\") | .status" \
-                | head -1 || true)
-              if [ "$status" = "online" ]; then
-                echo "Runner is online."
-                exit 0
-              fi
-              sleep 5
-            done
-            exit 1
-          else
-            echo "API hidden, falling back to fixed wait..."
-            sleep 45
-          fi
-
-  # ── STEP 2: The actual build (Moved to self-hosted) ──────────────
+  # ── Build on self-hosted ARM64 runner (this machine) ─────────────
   build:
-    needs: start-vm
     name: Build ASK kernel (arm64, native)
-    # CHANGE: Point this to your custom runner label
-    runs-on: self-hosted 
+    runs-on: self-hosted
     timeout-minutes: 90
     
     defaults:
