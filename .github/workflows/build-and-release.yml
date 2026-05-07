@@ -2,7 +2,7 @@ name: build-and-release
 
 on:
   push:
-    branches: [ "lts-6.6-ls1046a", "main" ]
+    branches: [ "lts-6.6-ls1046a", "main", "mainline-6.18-port" ]
     tags: [ "kernel-*" ]
     paths:
       - "release/**"
@@ -113,7 +113,8 @@ jobs:
             libmnl-dev libnftnl-dev libnetfilter-conntrack-dev libnfnetlink-dev \
             libpam0g-dev libpcap0.8-dev libsystemd-dev zlib1g-dev ppp-dev \
             libtraceevent-dev libdw-dev libunwind-dev libaudit-dev \
-            libnuma-dev libperl-dev python3-dev libslang2-dev libzstd-dev
+            libnuma-dev libperl-dev python3-dev libslang2-dev libzstd-dev \
+            ccache
 
       - name: Preflight (environment report)
         shell: bash --noprofile --norc -o pipefail {0}
@@ -127,9 +128,20 @@ jobs:
           path: work/linux-*.tar.xz
           key: kernel-${{ hashFiles('versions.lock') }}-${{ github.event.inputs.kernel_version || 'latest' }}
 
+      - name: Cache ccache objects
+        uses: actions/cache@v4
+        with:
+          path: work/.ccache
+          key: ccache-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ github.ref_name }}-
+            ccache-
+
       - name: Run pipeline (fetch → health → build)
         env:
           KERNEL_VERSION_INPUT: ${{ github.event.inputs.kernel_version }}
+          CCACHE_DIR: ${{ github.workspace }}/work/.ccache
+          CCACHE_MAXSIZE: 5G
         run: |
           set -euo pipefail
           chmod +x scripts/*.sh
