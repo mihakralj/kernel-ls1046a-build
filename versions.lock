@@ -14,9 +14,13 @@
 
 # ── Kernel ─────────────────────────────────────────────────────────────
 # Pinned for deterministic builds. Empty → fetch-kernel.sh picks latest
-# 6.6.y from kernel.org. Bump this in a dedicated commit + tag when you
-# want to track a newer LTS point release.
-: "${KERNEL_VERSION:=6.6.137}"
+# of $KERNEL_SERIES from kernel.org. Bump in a dedicated commit + tag
+# when you want to track a newer point release.
+#
+# As of 2026-05-07 we are migrating from 6.6.137 LTS to 6.18.x to align
+# with VyOS rolling (vyos-build@current pins kernel_version = "6.18.26").
+: "${KERNEL_SERIES:=6.18}"
+: "${KERNEL_VERSION:=6.18.26}"
 
 # ── NXP qoriq SDK reference (provenance for the in-tree SDK overlay) ───
 # release/patches/kernel/sdk-sources/ is a verbatim mirror of the SDK
@@ -27,5 +31,5 @@
 : "${NXP_SDK_BRANCH:=ask-6.6-port}"
 : "${NXP_SDK_SHA:=6d0b77e999047ccffa51a973f17f82b8d75d7e5e}"
 
-export KERNEL_VERSION
+export KERNEL_SERIES KERNEL_VERSION
 export NXP_SDK_REPO NXP_SDK_BRANCH NXP_SDK_SHA

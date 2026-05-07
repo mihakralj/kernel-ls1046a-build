@@ -52,16 +52,86 @@ end_group() {
     return 0
 }
 
-# Fetch latest 6.6.y stable version from kernel.org releases.json
-# Prints e.g. "6.6.123" to stdout
-latest_6_6_y() {
-    curl -fsSL https://www.kernel.org/releases.json \
-        | jq -r '.releases[] | select(.moniker=="longterm") | select(.version|startswith("6.6.")) | .version' \
-        | head -1
+# Fetch latest stable version from kernel.org releases.json for a given X.Y series.
+# Tries the "stable" moniker first (current mainline), falls back to "longterm".
+# Prints e.g. "6.18.26" to stdout.
+latest_stable_y() {
+    local series="${1:-6.18}"
+    local json
+    json=$(curl -fsSL https://www.kernel.org/releases.json) || return 1
+    # Try stable moniker first, then longterm.
+    local v
+    v=$(printf '%s' "$json" | jq -r --arg s "${series}." \
+        '.releases[] | select(.moniker=="stable") | select(.version|startswith($s)) | .version' \
+        | head -1)
+    if [[ -z "$v" ]]; then
+        v=$(printf '%s' "$json" | jq -r --arg s "${series}." \
+            '.releases[] | select(.moniker=="longterm") | select(.version|startswith($s)) | .version' \
+            | head -1)
+    fi
+    [[ -n "$v" ]] || return 1
+    printf '%s\n' "$v"
 }
+
+# Backward-compat alias for legacy callers (build-kernel.sh, etc.).
+latest_6_6_y() { latest_stable_y 6.6; }
 
 # Cross-platform nproc
 nproc_any() { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4; }
+
+# ── ccache integration ─────────────────────────────────────────────────
+#
+# Wrap gcc/HOSTCC with ccache when available. Kernel + OOT module builds
+# use plenty of headers and rebuild the same TUs across iterations
+# (ask-N → ask-N+1 typically touches <5 files), so ccache hit rates of
+# 90%+ are normal once the cache is warm.
+#
+# Sets two globals when ccache is on PATH:
+#   CCACHE_MAKE_ARGS  — array; pass to `make` to wrap CC + HOSTCC
+#   CCACHE_ENABLED    — "1" if active, unset otherwise
+#
+# Exports CCACHE_DIR / CCACHE_MAXSIZE / CCACHE_SLOPPINESS with sensible
+# defaults if the user has not already set them. The sloppiness list is
+# the ccache-recommended set for kernel builds (kbuild stamps every TU
+# with build time + path).
+#
+# Caller may opt out by setting CCACHE_DISABLE=1 in the environment.
+setup_ccache() {
+    CCACHE_MAKE_ARGS=()
+    [[ "${CCACHE_DISABLE:-0}" == "1" ]] && return 0
+    command -v ccache >/dev/null 2>&1 || return 0
+
+    export CCACHE_DIR="${CCACHE_DIR:-$HOME/.ccache}"
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-20G}"
+    export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-time_macros,file_macro,include_file_mtime,include_file_ctime,pch_defines}"
+    export CCACHE_COMPRESS="${CCACHE_COMPRESS:-1}"
+
+    # Prepend Debian's /usr/lib/ccache shim dir to PATH so dpkg-buildpackage
+    # / autotools / make-without-explicit-CC flows (build-ask-iptables.sh,
+    # build-ask-ppp.sh) transparently route gcc/g++/cc through ccache. The
+    # kernel build's own `make CC="ccache gcc"` (CCACHE_MAKE_ARGS below)
+    # still wins for kbuild because it sets CC explicitly.
+    if [[ -d /usr/lib/ccache && ":$PATH:" != *":/usr/lib/ccache:"* ]]; then
+        export PATH="/usr/lib/ccache:$PATH"
+    fi
+
+    CCACHE_MAKE_ARGS=(
+        "CC=ccache ${CROSS_COMPILE:-}gcc"
+        "HOSTCC=ccache gcc"
+    )
+    CCACHE_ENABLED=1
+    return 0
+}
+
+# Print a one-line ccache status (call after setup_ccache + a build run).
+ccache_status_line() {
+    [[ "${CCACHE_ENABLED:-0}" == "1" ]] || return 0
+    command -v ccache >/dev/null 2>&1 || return 0
+    local hits misses
+    hits=$(ccache -s 2>/dev/null | awk -F: '/[Cc]acheable calls.*hit/ {gsub(/[^0-9]/,"",$2); print $2; exit} /^cache hit/ {gsub(/[^0-9]/,"",$2); print $2; exit}')
+    misses=$(ccache -s 2>/dev/null | awk -F: '/[Cc]acheable calls.*miss/ {gsub(/[^0-9]/,"",$2); print $2; exit} /^cache miss/ {gsub(/[^0-9]/,"",$2); print $2; exit}')
+    dim "   ccache:        dir=$CCACHE_DIR hits=${hits:-?} misses=${misses:-?} max=$CCACHE_MAXSIZE"
+}
 
 # Require command(s) on PATH; exit cleanly if missing
 need() {

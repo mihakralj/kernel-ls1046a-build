@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# fetch-kernel.sh — download a linux-6.6.N stable tarball and extract it
+# fetch-kernel.sh — download a linux-X.Y.Z mainline/stable tarball and extract it
 #
 # Usage:
-#   ./scripts/fetch-kernel.sh              # auto-picks latest 6.6.y
-#   ./scripts/fetch-kernel.sh 6.6.123      # pins a specific version
+#   ./scripts/fetch-kernel.sh              # auto-picks latest of $KERNEL_SERIES
+#                                          # (default: 6.18)
+#   ./scripts/fetch-kernel.sh 6.18.26      # pins a specific version
 #
 # Side effects:
 #   work/linux-<VERSION>.tar.xz         (cached; not re-downloaded if present)
@@ -18,23 +19,25 @@ need curl tar jq
 # Priority order for the target kernel version:
 #   1. positional arg ($1)                  — explicit CLI override
 #   2. KERNEL_VERSION env / versions.lock    — persistent pin
-#   3. kernel.org latest 6.6.y               — floating
+#   3. kernel.org latest of $KERNEL_SERIES   — floating (default series 6.18)
 if [[ -f "$REPO_ROOT/versions.lock" ]]; then
     # shellcheck disable=SC1091
     source "$REPO_ROOT/versions.lock"
 fi
 
+KERNEL_SERIES="${KERNEL_SERIES:-6.18}"
+
 VERSION="${1:-${KERNEL_VERSION:-}}"
 if [[ -z "$VERSION" ]]; then
-    info "Resolving latest linux-6.6.y from kernel.org…"
-    VERSION="$(latest_6_6_y)"
-    [[ -n "$VERSION" ]] || err "Could not resolve latest 6.6.y version"
+    info "Resolving latest linux-${KERNEL_SERIES}.y from kernel.org…"
+    VERSION="$(latest_stable_y "$KERNEL_SERIES")"
+    [[ -n "$VERSION" ]] || err "Could not resolve latest ${KERNEL_SERIES}.y version"
 else
     dim "Using pinned kernel version: $VERSION"
 fi
 
 # Validate shape
-[[ "$VERSION" =~ ^6\.6\.[0-9]+$ ]] || err "invalid version: '$VERSION' (expected 6.6.N)"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || err "invalid version: '$VERSION' (expected X.Y.Z)"
 
 ok "Target kernel: linux-${VERSION}"
 
