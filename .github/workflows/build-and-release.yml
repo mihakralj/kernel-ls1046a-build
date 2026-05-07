@@ -71,40 +71,21 @@ jobs:
     name: Build ASK kernel (arm64, native)
     runs-on: self-hosted
     timeout-minutes: 90
-    
+
     defaults:
       run:
         shell: bash
 
-    container:
-      image: debian:bookworm
-
     steps:
-      - name: Bootstrap container (git, curl, gh, sudo)
-        run: |
-          set -eux
-          apt-get update -qq
-          apt-get install -y --no-install-recommends \
-            git curl ca-certificates gnupg jq sudo lsb-release \
-            apt-transport-https
-          mkdir -p /etc/apt/keyrings
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-            | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
-          chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-            > /etc/apt/sources.list.d/github-cli.list
-          apt-get update -qq
-          apt-get install -y --no-install-recommends gh
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Install build deps (native arm64, Debian bookworm)
+      - name: Ensure build deps present
         run: |
-          # ... (Keep your existing multi-step script here) ...
-          apt-get install -y --no-install-recommends \
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
             build-essential debhelper devscripts quilt dpkg-dev \
             libssl-dev bc flex bison libelf-dev \
             fakeroot kmod rsync cpio patch patchutils \
@@ -114,10 +95,11 @@ jobs:
             libnuma-dev libperl-dev python3-dev libslang2-dev libzstd-dev \
             ccache
 
-      - name: Preflight (environment report)
-        shell: bash --noprofile --norc -o pipefail {0}
+      - name: Preflight
         run: |
-          # ... (Keep existing diagnostic script) ...
+          echo "=== Host ===" && uname -a
+          echo "=== GCC ===" && gcc --version | head -1
+          echo "=== ccache ===" && ccache --version | head -1
 
       - name: Cache kernel source tarball
         id: kcache
