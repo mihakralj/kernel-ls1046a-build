@@ -60,7 +60,10 @@
  * mainline 6.18 does not.  The OOT module's `linux stats` shim runs only
  * on user request (cdx_ifstats_get ioctl) and is not on the boot/cmm path.
  */
-typedef int (*ask_fp_stats_cb_t)(void *);
+/* Match the signature actually passed by the single caller below
+ * (virt_iface_stats_callback) so -Wincompatible-pointer-types is happy. */
+typedef void (*ask_fp_stats_cb_t)(struct net_device *dev,
+				  struct rtnl_link_stats64 *storage);
 static inline int dev_fp_stats_get_register(ask_fp_stats_cb_t cb)
 { (void)cb; return 0; }
 static inline int dev_fp_stats_get_deregister(void)
