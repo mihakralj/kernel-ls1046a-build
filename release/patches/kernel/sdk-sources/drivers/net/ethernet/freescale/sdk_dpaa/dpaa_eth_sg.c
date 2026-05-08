@@ -1483,11 +1483,23 @@ static int pfe_eth_get_queuenum( struct sk_buff *skb )
 		enum ip_conntrack_info cinfo;
 		struct nf_conn *ct;
 
-		ct = nf_ct_get(skb, &cinfo);
-		if (ct) {
-			u_int64_t markval;
+ct = nf_ct_get(skb, &cinfo);
+if (ct) {
+u_int64_t markval;
 
-			markval = ct->qosconnmark;
+/* ASK-edit (ask6, mainline-6.18-port): the original NXP source
+ * read ct->qosconnmark, a 64-bit field added to struct nf_conn
+ * by the (deliberately deleted on 6.18) patch 050-conntrack-
+ * offload. Per MIGRATION-PLAN-6.18 D2 option (b), conntrack
+ * fast-path is being re-implemented via mainline nftables
+ * flowtable; until that lands, fall back to the standard
+ * 32-bit ct->mark. The high-bit reply-direction encoding below
+ * (markval >> 32) becomes a no-op since mark is u32 — that
+ * correctly degrades to "no per-direction qosconnmark", which
+ * is the safe path. CPE_FAST_PATH continues to compile and
+ * the fast-path queue selection falls through to the DSCP
+ * lookup in the surrounding caller. */
+markval = ct->mark;
 			if (cinfo >= IP_CT_IS_REPLY) {
 				if (markval & ((uint64_t)1 << 63))
 					markval >>= 32;
