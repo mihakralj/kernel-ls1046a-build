@@ -78,7 +78,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
@@ -103,13 +103,13 @@ jobs:
 
       - name: Cache kernel source tarball
         id: kcache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: work/linux-*.tar.xz
           key: kernel-${{ hashFiles('versions.lock') }}-${{ github.event.inputs.kernel_version || 'latest' }}
 
       - name: Cache ccache objects
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: work/.ccache
           key: ccache-${{ github.ref_name }}-${{ github.run_id }}
@@ -146,7 +146,7 @@ jobs:
           echo "kver=$KVER" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artefacts (workflow)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ask-kernel-${{ steps.collect.outputs.kver }}
           path: |
