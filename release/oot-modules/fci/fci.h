@@ -40,7 +40,21 @@ extern int comcerto_fpp_register_event_cb(void *cb);
 #define FCI_PRINTK(type, info, args...) do {} while(0);
 #endif
 
-/* Supported netlink protocol type NETLINK_FF */
+/* Supported netlink protocol type NETLINK_FF.
+ *
+ * ASK-edit (mainline-6.18-port): NETLINK_FF=30 was a downstream NXP
+ * uapi addition (released alongside MAX_LINKS bumped to 64) carried
+ * by the lf-6.6.y / lf-6.12.y NETLINK patch set.  Mainline 6.18
+ * doesn't define it.  The userspace libfci already carries the same
+ * fallback (`#ifndef NETLINK_FF / #define NETLINK_FF 30` in
+ * lib/src/libfci.c); add it here too so the kernel-side fci.ko
+ * compiles against stock 6.18.  The corresponding kernel-side
+ * socket-protocol registration mirrors the ASK_FCI_NLKEY narrow-gate
+ * pattern (fixes/097) and would be wired up similarly when needed.
+ */
+#ifndef NETLINK_FF
+#define NETLINK_FF 30
+#endif
 #define FCI_NL_FF		0
 #define FCI_MAX_PROTO		1
 
