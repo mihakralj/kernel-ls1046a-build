@@ -41,7 +41,7 @@ index d4958e7e7631..d2b32a9c1079 100644
  endif
  
  obj-$(CONFIG_NETFILTER) = netfilter.o
-+obj-$(CONFIG_CPE_FAST_PATH) += comcerto_fp_netfilter.o
++obj-$(CONFIG_INET_IPSEC_OFFLOAD) += comcerto_fp_netfilter.o
  obj-$(CONFIG_NETFILTER_BPF_LINK) += nf_bpf_link.o
  
  obj-$(CONFIG_NETFILTER_NETLINK) += nfnetlink.o
