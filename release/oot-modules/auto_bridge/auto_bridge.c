@@ -251,7 +251,7 @@ static int abm_br_event(struct notifier_block *unused, unsigned long event, void
 						list_add(&table_entry->list_msg_to_send, &l2flow_list_msg_to_send);
 						work_to_do = 1;
 				}
-				if (del_timer(&table_entry->timeout) || no_timer)
+				if (timer_delete(&table_entry->timeout) || no_timer)
 					__abm_go_dying(table_entry);
 				}
 			}
@@ -643,7 +643,7 @@ static void __abm_go_dying(struct l2flowTable *table_entry)
 ****************************************************************************/
 static void  abm_death_by_timeout(struct timer_list *t)
 {
-    struct l2flowTable *table_entry = from_timer(table_entry, t, timeout);
+    struct l2flowTable *table_entry = timer_container_of(table_entry, t, timeout);
 	
 	spin_lock_bh(&abm_lock);
 	__abm_go_dying(table_entry);
@@ -712,7 +712,7 @@ static void abm_l2flow_update(int flags, struct l2flowTable *table_entry)
 		/* Flow is programmed in FPP */
 		table_entry->state = L2FLOW_STATE_FF;
 		/* If timer already expired we'll die, it's ok though... */
-		del_timer(&table_entry->timeout);
+		timer_delete(&table_entry->timeout);
 	}
 	else if(flags & L2FLOW_DENIED){
 		/* Flow is not programmed in FPP */
@@ -776,7 +776,7 @@ static int abm_l2flow_msg_handle(char action, int flags, struct l2flow *l2flowtm
 		}
 
 		/* Die soon or now */
-		if(del_timer(&table_entry->timeout) || (table_entry->state == L2FLOW_STATE_FF))
+		if(timer_delete(&table_entry->timeout) || (table_entry->state == L2FLOW_STATE_FF))
 			__abm_go_dying(table_entry);
 	}
 	else{
@@ -1134,7 +1134,7 @@ static  void abm_l2flow_table_flush(void)
 		list_for_each_safe(entry, tmp, &l2flow_table[i]){
 			table_entry = container_of(entry, struct l2flowTable, list);
 			table_entry->flags |= L2FLOW_FL_DEAD;
-			if(del_timer(&table_entry->timeout) || table_entry->state == L2FLOW_STATE_FF)
+			if(timer_delete(&table_entry->timeout) || table_entry->state == L2FLOW_STATE_FF)
 				__abm_go_dying(table_entry);
 		}
 	}
@@ -1429,9 +1429,9 @@ static void  abm_proc_fini(void)
 
 static struct ctl_table_header *abm_sysctl_hdr;
 
-static int abm_sysctl_l3_filtering(struct ctl_table *ctl, int write,
-				  void *buffer,
-				  size_t *lenp, loff_t *ppos)
+static int abm_sysctl_l3_filtering(const struct ctl_table *ctl, int write,
+  void *buffer,
+  size_t *lenp, loff_t *ppos)
 {
 	int *valp = ctl->data;
 	int val = *valp;
