@@ -53,21 +53,18 @@
 #include "control_tx.h"
 #include "procfs.h"
 
-/* ASK-edit (mainline-6.18-port): no-op stubs for lf-6.12.y fast-path stats
- * register/deregister hooks absent in mainline 6.18.  These were exported
- * by an out-of-tree NXP kernel patch (dev_fp_stats_get_register/_deregister
- * in include/linux/netdevice.h) that lf-6.6.y carried via SDK_DPAA but
- * mainline 6.18 does not.  The OOT module's `linux stats` shim runs only
- * on user request (cdx_ifstats_get ioctl) and is not on the boot/cmm path.
+/* ASK-edit (ask6, mainline-6.18-port): historical stubs removed.
+ * Once CONFIG_CPE_FAST_PATH=y is honored on 6.18 (see ask/021 Kconfig
+ * stanza) and patch ask/030 is applied, the kernel exports the real
+ * symbols from net/core/dev.c via include/linux/netdevice.h:
+ *     typedef void (*fp_iface_stats_get)(struct net_device *device,
+ *                                         struct rtnl_link_stats64 *tot);
+ *     void dev_fp_stats_get_register(fp_iface_stats_get func);
+ *     void dev_fp_stats_get_deregister(void);
+ * The previous static-inline stubs collided with the real prototypes.
+ * Both call sites below ignore the (now-void) return value, so the
+ * switchover is binary-compatible.
  */
-/* Match the signature actually passed by the single caller below
- * (virt_iface_stats_callback) so -Wincompatible-pointer-types is happy. */
-typedef void (*ask_fp_stats_cb_t)(struct net_device *dev,
-				  struct rtnl_link_stats64 *storage);
-static inline int dev_fp_stats_get_register(ask_fp_stats_cb_t cb)
-{ (void)cb; return 0; }
-static inline int dev_fp_stats_get_deregister(void)
-{ return 0; }
 
 //#define DEVMAN_DEBUG	1
 
