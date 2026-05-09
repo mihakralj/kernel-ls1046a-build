@@ -1,6 +1,46 @@
 # kernel-ls1046a-build — Agent Rules
 
+> ## ⚠️ DEPRECATED — REPO IS FROZEN (PR 7, 2026-05-09)
+>
+> All content (release/patches, SDK source drops, OOT modules, userspace patches, scripts, CI) has been absorbed into the consumer [`vyos-ls1046a-build`](https://github.com/mihakralj/vyos-ls1046a-build) under `kernel/common/` and `kernel/flavors/ask/` per `plans/INTEGRATION-PLAN.md` (PRs 1–5).
+>
+> **Agents: do not commit new patches, SDK edits, or workflow changes here.** New ASK work happens in the consumer repo. The rules below are kept verbatim as historical reference for the per-askN iteration trail; they describe the tag/release/patch-health/SDK-edit discipline that this repo used to enforce while it was the source of ASK kernel `.deb` artifacts.
+>
+> The final intended frozen tag is `kernel-6.6.137-ask<final>-frozen` (post-ask41), published once for archival reference. No further `kernel-6.6.137-askN` tags will be cut.
+>
+> Consumer changes:
+> - The consumer's `data/ask-kernel.pin` mechanism is being retired. The single-repo build selects ASK via the `flavor=ask` workflow input on `vyos-ls1046a-build`'s `self-hosted-build.yml`.
+> - Consumer `AGENTS.md` references to "pin against producer tag" / `data/ask-kernel.pin` are removed in PR 7's consumer-side commit.
+>
+> If a fix is needed against the producer's snapshot, port it to `vyos-ls1046a-build/kernel/flavors/ask/` instead. The ASK-edit marker discipline (`/* ASK-edit (askN, …): … */`) carries over to the consumer's `kernel/flavors/ask/sdk-sources/` tree (35 marked files at time of freeze).
+>
+> ---
+
 Producer repo for the ASK kernel (`kernel-6.6.137-askN`). Builds Linux 6.6.137 + VyOS patches + NXP SDK DPAA/FMan/QBMan drivers and publishes a GitHub Release for the consumer `vyos-ls1046a-build` to pin against.
+
+## Qdrant memory usage (required)
+
+- At the start of each task, query Qdrant for relevant prior notes (repo invariants, patch-health thresholds, defconfig requirements, failure models, or migration plans) before re-reading large docs.
+- When you discover new operational insights (workflow rules, invariants, or migration findings), store a concise summary in Qdrant for future retrieval.
+- Keep summaries focused on stable facts or rules (avoid transient CI logs).
+- If a task updates any of these rules, refresh the stored memory entry after the change.
+
+## Agent workflow rules (Cline `.clinerules/`)
+
+The `.clinerules/` directory layers operational rules on top of AGENTS.md. The two rules
+most relevant to every task:
+
+- `.clinerules/70-qdrant-memory.md` — mandatory Qdrant query at task start, store new
+  stable insights during work, refresh entries when rules change.
+- `.clinerules/80-beast-mode.md` — adapted from Burke Holland's "4.1 Beast Mode v2" gist
+  (https://gist.github.com/burkeholland/a232b706994aa2f4b2ddd3d97b11f9a7). Enforces
+  autonomous completion (do not end the turn while checklist items remain), 8-step
+  workflow (understand → investigate → Qdrant query → plan → implement → debug → test →
+  reflect/store), recursive web fetching via `tavily_extract`/`ref_read_url`/`tavily_search`/
+  `kagi_search_fetch`/`ref_search_documentation`/`context7`, and `task_progress` checklist
+  discipline. Maps Copilot's `fetch_webpage` and todo widget to Cline equivalents. When a
+  Beast Mode rule conflicts with a more specific repo rule (tag discipline, patch-health
+  threshold, ASK-edit markers, defconfig invariants), the more specific repo rule wins.
 
 ## Critical Build Workflow Rules
 

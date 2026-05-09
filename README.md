@@ -1,5 +1,19 @@
 # kernel-ls1046a-build
 
+> ## ⚠️ DEPRECATED (PR 7 — 2026-05-09)
+>
+> This producer repo is **frozen**. All content (release/patches, SDK source drops with ASK-edit markers, scripts, and CI) has been absorbed in-tree into the consumer [`vyos-ls1046a-build`](https://github.com/mihakralj/vyos-ls1046a-build) under `kernel/common/` + `kernel/flavors/ask/` per `plans/INTEGRATION-PLAN.md` (PRs 1–5).
+>
+> **What this means for you:**
+> - The consumer no longer pins against per-tag GitHub Releases from this repo. The single-repo build now selects ASK via the `flavor=ask` workflow input on `vyos-ls1046a-build`'s `self-hosted-build.yml`.
+> - This repo will **not** receive further `kernel-6.6.137-askN` tags or releases. The final intended frozen tag is `kernel-6.6.137-ask<final>-frozen` (post-ask41) — published once for archival reference.
+> - The patch set, SDK source tree (266 files, 35 ASK-edit-marked), out-of-tree modules (cdx, fci, auto_bridge, iptables-extensions), and userspace patches (ppp, rp-pppoe) are now maintained in the consumer repo.
+> - Kept here as a frozen historical reference for the per-askN iteration trail. New work happens in `vyos-ls1046a-build`.
+>
+> **For agents:** prefer the consumer repo. Do not commit new patches, SDK edits, or workflow changes here. If a fix is needed against the producer's snapshot, port it to `vyos-ls1046a-build/kernel/flavors/ask/` instead.
+>
+> ---
+
 > Producer of the **ASK kernel** for NXP LS1046A boards: Linux 6.6.137 LTS + VyOS deltas + NXP SDK DPAA / FMan / QBMan drivers + ASK fast-path hooks. Publishes per-tag GitHub Releases that the consumer [`vyos-ls1046a-build`](https://github.com/mihakralj/vyos-ls1046a-build) pins against.
 
 ASK ([Application Solutions Kit](https://github.com/we-are-mono/ASK)) is NXP/Mono's fast-path networking stack: SDK FMan/DPAA/QBMan drivers, netfilter offload hooks, IPsec crypto-engine plumbing, conntrack/QoS extensions. It targets whichever kernel Mono is building against — currently **6.12**. VyOS 1.5/1.6 (and everything else that pins a 6.6 LTS kernel) is five years behind that.
